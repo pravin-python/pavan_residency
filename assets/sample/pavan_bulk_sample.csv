@@ -1,0 +1,5 @@
+name,email,block,house_no,amount,cheque_no,cheque_bank,language,type,date
+Ramesh Patel,ramesh@example.com,A,101,1500,123456,SBI,gujarati,maintenance,2026-07-18
+Suresh Shah,suresh@example.com,B,202,25000,,,hindi,deposit,
+John David,john@example.com,C,303,5000,998877,HDFC,english,transfer,
+Mahesh Bhai,mahesh@example.com,D,404,700,,,gujarati,other,
