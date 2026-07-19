@@ -18,6 +18,11 @@
 .pub/
 /build/
 
+# Flutter-specific generated files
+.flutter-plugins
+.flutter-plugins-dependencies
+generated_plugin_registrant.dart
+
 # IDEs and editors
 .idea/
 *.iml
@@ -32,6 +37,8 @@ android/.idea
 *.apk
 *.ap_
 *.aab
+.gradle/
+captures/
 
 # iOS-specific
 ios/.bundle/
@@ -48,8 +55,6 @@ ios/Flutter/Engine.framework
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
 ios/Flutter/GeneratedPluginRegistrant.swift
-ios/Flutter/GeneratedPluginRegistrant.m
-ios/Flutter/GeneratedPluginRegistrant.h
 Pods/
 .symlinks/
 *.pbxuser
