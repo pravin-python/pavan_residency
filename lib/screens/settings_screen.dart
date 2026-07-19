@@ -69,7 +69,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     s.port = int.tryParse(_port.text) ?? 465;
     s.ssl = _ssl;
     s.username = _user.text.trim();
-    s.password = _pass.text;
+    
+    String cleanedPassword = _pass.text;
+    // Auto-clean Gmail App Passwords (which are 16 letters, generated as 4 blocks of 4 separated by spaces)
+    if (s.host.toLowerCase().contains('gmail') || s.username.toLowerCase().contains('gmail')) {
+      cleanedPassword = cleanedPassword.replaceAll(' ', '');
+    }
+    s.password = cleanedPassword;
+
     s.senderName = _senderName.text.trim();
     s.senderEmail = _senderEmail.text.trim();
     s.subjectTpl = _subject.text.trim().isEmpty
