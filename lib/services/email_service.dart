@@ -18,12 +18,17 @@ class EmailService {
       throw Exception('SMTP settings missing - Settings tab bharo.');
     }
 
+    String cleanedPassword = s.password;
+    if (s.host.toLowerCase().contains('gmail') || s.username.toLowerCase().contains('gmail')) {
+      cleanedPassword = cleanedPassword.replaceAll(' ', '');
+    }
+
     final server = SmtpServer(
       s.host,
       port: s.port,
       ssl: s.ssl,
       username: s.username,
-      password: s.password,
+      password: cleanedPassword,
     );
 
     final sig = s.signatureBytes;
