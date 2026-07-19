@@ -158,7 +158,7 @@ class _SingleScreenState extends State<SingleScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: DropdownButtonFormField<PaymentType>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
                   DropdownMenuItem(
@@ -197,7 +197,7 @@ class _SingleScreenState extends State<SingleScreen> {
           Row(children: [
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: _lang,
+                initialValue: _lang,
                 decoration: const InputDecoration(labelText: 'Language'),
                 items: const [
                   DropdownMenuItem(value: 'gu', child: Text('ગુજરાતી')),

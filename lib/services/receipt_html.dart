@@ -24,7 +24,7 @@ String buildReceiptHtml(ReceiptData d, {bool inlineSignature = false}) {
       : '${t.pay}: <b style="color:#222">${t.cash}</b>';
 
   final rows = StringBuffer();
-  final keys = PaymentType.values;
+  const keys = PaymentType.values;
   for (var i = 0; i < keys.length; i++) {
     final k = keys[i];
     final isIt = k == d.type;

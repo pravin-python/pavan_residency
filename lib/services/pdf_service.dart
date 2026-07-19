@@ -63,7 +63,7 @@ class PdfService {
 
     final sigImg = signature != null ? pw.MemoryImage(signature) : null;
 
-    final typeKeys = PaymentType.values;
+    const typeKeys = PaymentType.values;
     final tableRows = <pw.TableRow>[
       pw.TableRow(
         decoration: pw.BoxDecoration(color: _pinkDark),
