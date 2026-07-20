@@ -1,4 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required to send receipt emails over SMTP (Gmail etc.). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Lets the app check for connectivity before sending (network-related, benign). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- File pick / save (CSV, signature, demo download) uses the system
+         Storage Access Framework, which needs NO storage permission on any
+         supported Android version (minSdk 24+). Nothing to add there. -->
+    <!-- PDF preview/print/share uses Android PrintManager + the share sheet,
+         which also need no extra permission. -->
+
     <application
         android:label="Pavan Residency"
         android:name="${applicationName}"

@@ -7,6 +7,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Name output APKs after the app instead of the default "app-*".
+// Result e.g. Pavan_Residency-arm64-v8a-release.apk
+base {
+    archivesName = "Pavan_Residency"
+}
+
 // Release signing: read secrets from android/key.properties (kept out of git).
 // If the file is absent the build safely falls back to debug signing below.
 val keystoreProperties = Properties()
