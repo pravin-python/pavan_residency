@@ -47,10 +47,11 @@ class _BulkScreenState extends State<BulkScreen> {
       // Already mailed from this phone (e.g. an interrupted bulk run, then
       // the same CSV loaded again): don't send those a second time.
       var before = 0;
+      final matched = <String>{}; // one log entry marks at most one row
       for (final r in rows) {
         if (r.status != SendStatus.ready) continue;
         final no = await SentLog.sentNo(r);
-        if (no != null) {
+        if (no != null && matched.add(SentLog.keyOf(r))) {
           r
             ..status = SendStatus.sent
             ..recNo = no
@@ -196,6 +197,10 @@ class _BulkScreenState extends State<BulkScreen> {
     await WakelockPlus.enable().catchError((_) {});
     var sent = 0;
     String? abortReason;
+    // Explicit receipt_no values of this batch: auto numbers must skip
+    // them (CSV with blank + typed numbers, or a Single send meanwhile).
+    final explicit = todo.where((r) => r.recNo > 0).map((r) => r.recNo).toSet();
+    SettingsService.reserve(explicit);
     try {
       for (final r in todo) {
         if (_stop) break;
@@ -231,6 +236,9 @@ class _BulkScreenState extends State<BulkScreen> {
           r.error = 'Pata nahi mail gaya ya nahi (receipt #${r.recNo}) — '
               '${EmailService.friendlyError(e)}';
           _uncertain.add(r);
+          // ... and count the number as used, so the counter never hands
+          // it to another resident.
+          await SettingsService.bumpReceiptNo(r.recNo).catchError((_) {});
         }
         if (mounted) setState(() => _done++);
         if (abortReason != null) break;
@@ -238,6 +246,7 @@ class _BulkScreenState extends State<BulkScreen> {
         await Future.delayed(const Duration(milliseconds: 1200));
       }
     } finally {
+      SettingsService.unreserve(explicit);
       await WakelockPlus.disable().catchError((_) {});
       for (final r in todo.where((r) => r.status == SendStatus.sending)) {
         r.status = SendStatus.ready;

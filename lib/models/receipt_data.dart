@@ -31,6 +31,9 @@ class ReceiptData {
   /// Bulk: already emailed from this phone earlier (see SentLog).
   bool sentBefore = false;
 
+  /// The CSV had no date, so [date] is the day it was loaded (today).
+  bool dateDefaulted = false;
+
   ReceiptData({
     this.lang = 'gu',
     this.name = '',
@@ -93,7 +96,9 @@ class ReceiptData {
         date: date,
         status: status,
         error: error,
-      );
+      )
+        ..sentBefore = sentBefore
+        ..dateDefaulted = dateDefaulted;
 
   /// Case-insensitive: 'Cash' / 'Cheque' / 'Check' / 'Online' / 'UPI' /
   /// 'NEFT' / 'GPay' / 'PhonePe' ... (Gujarati / Hindi words too).
@@ -156,8 +161,15 @@ class ReceiptData {
 
   /// '7,500' / '₹ 7500' / 'Rs. 7,500.00' => 7500.
   /// '-500' / '(500)' => negative, so the row is flagged invalid.
+  /// '7500,00' (comma as decimal point, Excel in some locales) => 7500;
+  /// '7500/-' => 7500.
   static double parseAmount(String v) {
-    final s = v.replaceAll(RegExp(r'[,\s]'), '');
+    var s = v.replaceAll(RegExp(r'\s'), '').replaceFirst(RegExp(r'/-$'), '');
+    // A single comma followed by 1–2 final digits is a decimal comma; a
+    // thousands comma (Indian or Western) always has 3 digits after the last.
+    s = RegExp(r'^[^,]*,\d{1,2}$').hasMatch(s)
+        ? s.replaceFirst(',', '.')
+        : s.replaceAll(',', '');
     final m = RegExp(r'\d+(\.\d+)?').firstMatch(s);
     if (m == null) return 0;
     final n = double.parse(m.group(0)!);
@@ -201,7 +213,10 @@ class ReceiptData {
         const ['transfer', 'trnsfr', 'ટ્રાન્સફર', 'ट्रांसफर', 'ट्रान्सफर'])) {
       return PaymentType.transfer;
     }
-    if (any(const ['maint', 'મેન્ટે', 'मेंटे', 'मेन्टे'])) {
+    if (any(const [
+      'maint', 'mant', 'mente', 'mentain', 'maitn', 'maiten', 'મેન્ટે', //
+      'મેઈન્ટ', 'મેઇન્ટ', 'मेंटे', 'मेन्टे', 'मैंटे', 'मेंटन',
+    ])) {
       return PaymentType.maintenance;
     }
     return PaymentType.other;

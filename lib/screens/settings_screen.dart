@@ -136,7 +136,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    final s = _s ?? AppSettings();
+    // Never a fresh AppSettings(): that would wipe the live counter.
+    final s = _s ?? await SettingsService.load();
+    final typedNo = int.tryParse(_nextNo.text.trim());
+    final changedNo = typedNo != null && typedNo > 0 && typedNo != _shownNextNo;
+    // Until confirmed once (new install / reinstall — backups are off) the
+    // counter is only the default: make the user check it.
+    if (!mounted) return;
+    if (!s.counterConfirmed) {
+      final no = changedNo ? typedNo : s.nextReceiptNo;
+      final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Next Receipt No. check karo'),
+              content: Text('Agli receipt #$no se chhapegi.\n\n'
+                  'Purane phone / receipt book ka last number + 1 hona '
+                  'chahiye, warna numbers repeat honge. Sahi hai?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Change karna hai')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Haan, sahi hai')),
+              ],
+            ),
+          ) ??
+          false;
+      if (!ok || !mounted) return;
+    }
     s.host = _host.text.trim();
     s.port = int.tryParse(_port.text) ?? 465;
     s.ssl = _ssl;
@@ -156,10 +184,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'Pavan Residency Receipt #{no}'
         : _subject.text.trim();
     s.attachPdf = _attachPdf;
-    final typedNo = int.tryParse(_nextNo.text.trim());
-    if (typedNo != null && typedNo > 0 && typedNo != _shownNextNo) {
+    if (changedNo) {
       s.nextReceiptNo = typedNo; // deliberately changed by the user
     }
+    s.counterConfirmed = true;
     await SettingsService.save(s);
     _shownNextNo = s.nextReceiptNo;
     _nextNo.text = '${s.nextReceiptNo}';
@@ -258,7 +286,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         TextField(
             controller: _nextNo,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Next Receipt No.')),
+            decoration: const InputDecoration(
+                labelText: 'Next Receipt No.',
+                helperText: 'Agli receipt ka number — har send ke baad +1')),
         const Divider(height: 30),
         const Text('Signature Image (jpg / jpeg / png)',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),

@@ -18,6 +18,9 @@ class CsvService {
   static const _colMap = {
     'name': 'name',
     'email': 'email',
+    'emailid': 'email',
+    'emailaddress': 'email',
+    'mail': 'email',
     'block': 'block',
     'blockno': 'block',
     'houseno': 'house',
@@ -28,6 +31,9 @@ class CsvService {
     'flat': 'house',
     'shedno': 'house',
     'amount': 'amount',
+    'amountrs': 'amount',
+    'amountinr': 'amount',
+    'rs': 'amount',
     'chequeno': 'chqno',
     'chqno': 'chqno',
     'checkno': 'chqno',
@@ -65,38 +71,92 @@ class CsvService {
     'note': 'remark',
     'notes': 'remark',
     'receiptno': 'recno',
+    'receiptnumber': 'recno',
+    'recno': 'recno',
+    'receipt': 'recno',
     'date': 'date',
+    'receiptdate': 'date',
     'receiveddate': 'recdate',
     'receivedon': 'recdate',
+    'paymentdate': 'recdate',
+    'paiddate': 'recdate',
+    'paidon': 'recdate',
   };
 
   static String todayStr() => DateFormat('dd-MM-yyyy').format(DateTime.now());
 
-  /// [monthFirst]: the file uses M/D/YYYY (see [_isMonthFirst]).
-  static String normDate(String v, {bool monthFirst = false}) {
+  static const _months = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, //
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+  };
+
+  /// dd-MM-yyyy for a date cell, or null if it can't be understood.
+  /// Accepts 2026-09-25 (+ time), 25/09/2026, 25.9.26, 9/25/2026
+  /// (month-first, see [monthFirst]), 25-Sep-2026, Sep 25, 2026 and Excel
+  /// serial numbers (46290).
+  static String? tryNormDate(String v, {bool monthFirst = false}) {
     final s = v.trim();
-    if (s.isEmpty) return todayStr();
-    String p2(String x) => x.padLeft(2, '0');
-    // 2026-09-25 / 2026/9/25 / 2026-09-25 10:30:00 (ISO, as exported by
-    // Google Sheets / Excel; a trailing time is dropped)
+    String? out(int y, int m, int d) {
+      if (y < 100) y += 2000;
+      if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) {
+        return null;
+      }
+      final dt = DateTime(y, m, d);
+      if (dt.month != m) return null; // e.g. 31-02
+      return DateFormat('dd-MM-yyyy').format(dt);
+    }
+
     final iso = RegExp(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T].*)?$')
         .firstMatch(s);
     if (iso != null) {
-      return '${p2(iso.group(3)!)}-${p2(iso.group(2)!)}-${iso.group(1)}';
+      return out(int.parse(iso.group(1)!), int.parse(iso.group(2)!),
+          int.parse(iso.group(3)!));
     }
-    // 25/09/2026 / 25.9.2026 (Indian day-first). Excel on a US-locale PC
-    // re-saves dates as 9/25/2026 (month first): swap when the second
-    // number can't be a month, or when the whole file is month-first.
-    final dmy = RegExp(r'^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[ T].*)?$')
-        .firstMatch(s);
+    // Indian day-first. Excel on a US-locale PC re-saves dates as 9/25/2026
+    // (month first): swap when the second number can't be a month, or when
+    // the whole file is month-first.
+    final dmy =
+        RegExp(r'^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?:[ T].*)?$')
+            .firstMatch(s);
     if (dmy != null) {
       var day = int.parse(dmy.group(1)!), month = int.parse(dmy.group(2)!);
       if (day <= 12 && (month > 12 || (monthFirst && month <= 12))) {
         (day, month) = (month, day);
       }
-      return '${p2('$day')}-${p2('$month')}-${dmy.group(3)}';
+      return out(int.parse(dmy.group(3)!), month, day);
     }
-    return s;
+    // 25-Sep-2026 / 25 September 2026
+    final dMonY =
+        RegExp(r'^(\d{1,2})[\s\-/.]+([A-Za-z]{3,})[\s\-/.,]+(\d{2,4})$')
+            .firstMatch(s);
+    if (dMonY != null) {
+      final m = _months[dMonY.group(2)!.substring(0, 3).toLowerCase()];
+      if (m == null) return null;
+      return out(int.parse(dMonY.group(3)!), m, int.parse(dMonY.group(1)!));
+    }
+    // Sep 25, 2026
+    final monDY =
+        RegExp(r'^([A-Za-z]{3,})[\s\-/.]+(\d{1,2})[\s\-/.,]+(\d{2,4})$')
+            .firstMatch(s);
+    if (monDY != null) {
+      final m = _months[monDY.group(1)!.substring(0, 3).toLowerCase()];
+      if (m == null) return null;
+      return out(int.parse(monDY.group(3)!), m, int.parse(monDY.group(2)!));
+    }
+    // Excel serial day number (days since 1899-12-30).
+    final serial = RegExp(r'^(\d{5})(?:\.\d+)?$').firstMatch(s);
+    if (serial != null) {
+      final dt = DateTime(1899, 12, 30)
+          .add(Duration(days: int.parse(serial.group(1)!)));
+      return out(dt.year, dt.month, dt.day);
+    }
+    return null;
+  }
+
+  /// Like [tryNormDate]; blank => today, unknown text is kept as-is.
+  static String normDate(String v, {bool monthFirst = false}) {
+    if (v.trim().isEmpty) return todayStr();
+    return tryNormDate(v, monthFirst: monthFirst) ?? v.trim();
   }
 
   /// "Other" details: the remarks column, else free text typed in the type
@@ -111,7 +171,7 @@ class CsvService {
         .join(' – ');
   }
 
-  static final _dmyRe = RegExp(r'^(\d{1,2})[-/.](\d{1,2})[-/.]\d{4}');
+  static final _dmyRe = RegExp(r'^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})\b');
 
   /// True when the file's dates are M/D/YYYY: some date has a second part
   /// > 12 (9/25/2026) and none has a first part > 12 (25/9/2026). Decided
@@ -128,28 +188,51 @@ class CsvService {
     return md && !dm;
   }
 
-  /// UTF-8 (with or without BOM) or UTF-16 LE/BE with BOM — Excel's
-  /// "Unicode Text" / "CSV UTF-16" exports.
+  /// UTF-8 (with or without BOM) or UTF-16 LE/BE (with a BOM, or detected by
+  /// its zero bytes) — Excel's "Unicode Text" / "CSV UTF-16" exports.
   static String decode(Uint8List bytes) {
-    if (bytes.length >= 2) {
-      final le = bytes[0] == 0xFF && bytes[1] == 0xFE;
-      final be = bytes[0] == 0xFE && bytes[1] == 0xFF;
-      if (le || be) {
-        final units = <int>[];
-        for (var k = 2; k + 1 < bytes.length; k += 2) {
-          units.add(le
-              ? bytes[k] | (bytes[k + 1] << 8)
-              : (bytes[k] << 8) | bytes[k + 1]);
+    bool? littleEndian;
+    var start = 0;
+    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+      littleEndian = true;
+      start = 2;
+    } else if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+      littleEndian = false;
+      start = 2;
+    } else if (bytes.length >= 4) {
+      // No BOM: ASCII-heavy UTF-16 has a 0 in every other byte.
+      final n = bytes.length < 400 ? bytes.length & ~1 : 400;
+      var oddZero = 0, evenZero = 0;
+      for (var k = 0; k < n; k++) {
+        if (bytes[k] != 0) continue;
+        if (k.isOdd) {
+          oddZero++;
+        } else {
+          evenZero++;
         }
-        return String.fromCharCodes(units);
       }
+      final pairs = n ~/ 2;
+      if (oddZero > pairs * 0.3 && evenZero < pairs * 0.05) {
+        littleEndian = true;
+      } else if (evenZero > pairs * 0.3 && oddZero < pairs * 0.05) {
+        littleEndian = false;
+      }
+    }
+    if (littleEndian != null) {
+      final units = <int>[];
+      for (var k = start; k + 1 < bytes.length; k += 2) {
+        units.add(littleEndian
+            ? bytes[k] | (bytes[k + 1] << 8)
+            : (bytes[k] << 8) | bytes[k + 1]);
+      }
+      return String.fromCharCodes(units);
     }
     final t = utf8.decode(bytes, allowMalformed: true);
     return t.startsWith('﻿') ? t.substring(1) : t;
   }
 
-  /// ',' normally; ';' (Excel in comma-decimal locales) or TAB ("Unicode
-  /// Text" export) when the header line uses those instead.
+  /// Guess from the first line: ',' normally; ';' (Excel in comma-decimal
+  /// locales) or TAB ("Unicode Text" export).
   static String _delimiter(String text) {
     final nl = text.indexOf('\n');
     final head = nl < 0 ? text : text.substring(0, nl);
@@ -160,33 +243,67 @@ class CsvService {
     return ',';
   }
 
+  static String _norm(dynamic h) =>
+      h.toString().toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+
+  /// How many distinct known columns [row] names (to find the header row).
+  static int _known(List<dynamic> row) =>
+      row.map((h) => _colMap[_norm(h)]).whereType<String>().toSet().length;
+
   static List<ReceiptData> parse(Uint8List bytes) {
-    final text = decode(bytes).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final rows = CsvToListConverter(
-      shouldParseNumbers: false,
-      eol: '\n',
-      fieldDelimiter: _delimiter(text),
-    ).convert(text);
+    var text = decode(bytes).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
-    if (rows.isEmpty) return [];
+    // Excel's "sep=;" first line names the delimiter.
+    String? sep;
+    final sepLine =
+        RegExp(r'^\s*sep=(.)\s*\n', caseSensitive: false).firstMatch(text);
+    if (sepLine != null) {
+      sep = sepLine.group(1);
+      text = text.substring(sepLine.end);
+    }
 
-    final header = rows.first
-        .map(
-            (h) => h.toString().toLowerCase().replaceAll(RegExp(r'[^a-z]'), ''))
-        .toList();
+    // The header is the first row (of the first 10) that names at least two
+    // known columns — so a title / blank line above it doesn't break import.
+    List<List<dynamic>> rows = const [];
+    var headerAt = -1;
+    final guess = sep ?? _delimiter(text);
+    for (final delim in {guess, ',', ';', '\t'}) {
+      final r = CsvToListConverter(
+        shouldParseNumbers: false,
+        eol: '\n',
+        fieldDelimiter: delim,
+      ).convert(text);
+      final limit = r.length < 10 ? r.length : 10;
+      for (var i = 0; i < limit; i++) {
+        if (_known(r[i]) >= 2) {
+          rows = r;
+          headerAt = i;
+          break;
+        }
+      }
+      if (headerAt >= 0) break;
+    }
+    if (headerAt < 0) return [];
+
+    final header = rows[headerAt].map(_norm).toList();
 
     final maps = <Map<String, String>>[];
-    for (var r = 1; r < rows.length; r++) {
+    for (var r = headerAt + 1; r < rows.length; r++) {
       final row = rows[r];
       if (row.every((c) => c.toString().trim().isEmpty)) continue;
 
       final m = <String, String>{};
       for (var c = 0; c < header.length && c < row.length; c++) {
         final key = _colMap[header[c]];
+        if (key == null) continue;
         final v = row[c].toString().trim();
-        // Two alias columns (e.g. cheque_bank + bank_name): a blank one
-        // must not wipe the filled one.
-        if (key != null && (v.isNotEmpty || !m.containsKey(key))) m[key] = v;
+        if (key == 'email' && v.isNotEmpty && (m['email'] ?? '').isNotEmpty) {
+          m['email'] = '${m['email']}, $v'; // Email 1 + Email 2 columns
+        } else if (v.isNotEmpty || !m.containsKey(key)) {
+          // Two alias columns (e.g. cheque_bank + bank_name): a blank one
+          // must not wipe the filled one.
+          m[key] = v;
+        }
       }
       maps.add(m);
     }
@@ -198,6 +315,26 @@ class CsvService {
 
     final out = <ReceiptData>[];
     for (final m in maps) {
+      final problems = <String>[];
+
+      final raw = rawDate(m);
+      String date;
+      if (raw.isEmpty) {
+        date = todayStr();
+      } else {
+        final nd = tryNormDate(raw, monthFirst: monthFirst);
+        if (nd == null) problems.add('date "$raw"');
+        date = nd ?? raw;
+      }
+
+      final recRaw = (m['recno'] ?? '').trim();
+      var recNo = 0;
+      if (recRaw.isNotEmpty) {
+        final x = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(recRaw);
+        recNo = x == null ? 0 : int.parse(x.group(1)!);
+        if (recNo <= 0) problems.add('receipt_no "$recRaw"');
+      }
+
       final d = ReceiptData(
         name: m['name'] ?? '',
         email: m['email'] ?? '',
@@ -212,10 +349,18 @@ class CsvService {
         lang: ReceiptData.parseLang(m['lang'] ?? ''),
         type: ReceiptData.parseType(m['type'] ?? ''),
         remark: _remark(m),
-        recNo: int.tryParse(m['recno'] ?? '') ?? 0,
-        date: normDate(rawDate(m), monthFirst: monthFirst),
-      );
-      d.status = d.isValid ? SendStatus.ready : SendStatus.invalid;
+        recNo: recNo,
+        date: date,
+      )..dateDefaulted = raw.isEmpty;
+      if (d.isValid && problems.isEmpty) {
+        d.status = SendStatus.ready;
+      } else {
+        d.status = SendStatus.invalid;
+        d.error = [
+          if (!d.isValid) d.invalidReason,
+          ...problems,
+        ].join(', ');
+      }
       out.add(d);
     }
     return out;

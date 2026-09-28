@@ -92,7 +92,7 @@ class PdfService {
         pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           pw.Text('$label ', style: st(10)),
           pw.Expanded(
-              child: dotted(value.isEmpty ? '-' : _ellipsis(value, 90),
+              child: dotted(value.isEmpty ? '-' : _ellipsis(value, 60),
                   b: b, maxLines: 2)),
         ]);
 
@@ -129,7 +129,7 @@ class PdfService {
               typeKeys[i] == PaymentType.other &&
                       d.type == PaymentType.other &&
                       d.remark.isNotEmpty
-                  ? '${t.rows[typeKeys[i]]} – ${_ellipsis(d.remark, 160)}'
+                  ? '${t.rows[typeKeys[i]]} – ${_ellipsis(d.remark, 110)}'
                   : t.rows[typeKeys[i]]!,
               style: st(9.5),
               maxLines: 2,
@@ -273,9 +273,16 @@ class PdfService {
                           pw.SizedBox(height: gap),
                           pw.Row(children: [
                             pw.Text('${t.block} ', style: st(10)),
-                            dotted(d.block.isEmpty ? '-' : d.block),
+                            dotted(
+                                d.block.isEmpty ? '-' : _ellipsis(d.block, 8),
+                                maxLines: 1),
                             pw.Text('   ${t.flat} ', style: st(10)),
-                            dotted(d.house.isEmpty ? '-' : d.house),
+                            pw.Flexible(
+                                child: dotted(
+                                    d.house.isEmpty
+                                        ? '-'
+                                        : _ellipsis(d.house, 40),
+                                    maxLines: 1)),
                           ]),
                           pw.SizedBox(height: gap),
                           payment,

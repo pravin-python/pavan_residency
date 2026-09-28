@@ -149,25 +149,41 @@ class _SingleScreenState extends State<SingleScreen> {
       if (!ok || !mounted) return;
     }
     setState(() => _sending = true);
-    // Auto number: reserve it now so a Bulk send running at the same time
-    // can't take the same one.
-    if (auto) d.recNo = await SettingsService.takeReceiptNo();
+    // A typed number: keep it away from auto numbers (a Bulk run going on
+    // at the same time) until this send is done.
+    final typed = auto ? null : d.recNo;
+    if (typed != null) SettingsService.reserve([typed]);
     try {
-      await EmailService.sendReceipt(s, d);
-      _snack('✓ Receipt #${d.recNo} sent to ${d.email}');
-      _recNo.clear(); // next auto number (via _refreshRecNo)
-      await _refreshRecNo();
-    } on NotSentException catch (e) {
-      // Certainly not delivered: the reserved number can be reused.
-      if (auto) await SettingsService.releaseReceiptNo(d.recNo);
-      _snack('✗ Failed: ${EmailService.friendlyError(e)}', err: true);
-    } catch (e) {
-      // May have been delivered: keep #recNo used so it's never duplicated.
-      _snack(
-          '✗ Pata nahi mail gaya ya nahi (receipt #${d.recNo}) — '
-          '${EmailService.friendlyError(e)}. Inbox / Sent check karo.',
-          err: true);
+      if (auto) {
+        // Reserve the auto number now so a Bulk send running at the same
+        // time can't take the same one.
+        try {
+          d.recNo = await SettingsService.takeReceiptNo();
+        } catch (e) {
+          _snack('✗ Receipt no. save nahi hua: $e', err: true);
+          return;
+        }
+      }
+      try {
+        await EmailService.sendReceipt(s, d);
+        _snack('✓ Receipt #${d.recNo} sent to ${d.email}');
+        _recNo.clear(); // next auto number (via _refreshRecNo)
+        await _refreshRecNo();
+      } on NotSentException catch (e) {
+        // Certainly not delivered: the reserved number can be reused.
+        if (auto) await SettingsService.releaseReceiptNo(d.recNo);
+        _snack('✗ Failed: ${EmailService.friendlyError(e)}', err: true);
+      } catch (e) {
+        // May have been delivered: count #recNo as used so it is never
+        // given to anyone else.
+        await SettingsService.bumpReceiptNo(d.recNo).catchError((_) {});
+        _snack(
+            '✗ Pata nahi mail gaya ya nahi (receipt #${d.recNo}) — '
+            '${EmailService.friendlyError(e)}. Inbox / Sent check karo.',
+            err: true);
+      }
     } finally {
+      if (typed != null) SettingsService.unreserve([typed]);
       if (mounted) setState(() => _sending = false);
     }
   }

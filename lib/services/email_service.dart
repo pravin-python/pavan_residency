@@ -41,12 +41,47 @@ class EmailService {
     if (e is TimeoutException) {
       return 'Server ne jawab nahi diya (timeout). Internet / port check karo.';
     }
-    if (e is SmtpMessageValidationException || e is ArgumentError) {
-      return 'Email address galat hai: $e';
+    if (e is SmtpMessageValidationException) {
+      final probs = e.problems.map((p) => p.msg).join('; ');
+      return _isSenderProblem(e)
+          ? 'Sender email galat hai (Settings > Sender Email / Username): '
+              '$probs'
+          : 'Email address galat hai: $probs';
+    }
+    if (e is ArgumentError) return 'Email address galat hai: ${e.message}';
+    if (_serverRefused(e)) {
+      final reply = (e as MailerException)
+          .message
+          .split('\nResponse from server: ')
+          .last
+          .trim();
+      if (_quotaOrBlocked(e)) {
+        return 'Mail server ne rok diya (daily limit / blocked) — kuch der '
+            'baad try karo: $reply';
+      }
+      return 'Mail server ne mana kiya: $reply';
     }
     if (e is MailerException) return 'Mail server error: ${e.message}';
     return '$e';
   }
+
+  /// The server answered with an explicit 4xx / 5xx reply (greeting, MAIL,
+  /// RCPT or after the data): the mail was NOT accepted.
+  static bool _serverRefused(Object e) =>
+      e is SmtpClientCommunicationException &&
+      e.message.contains('\nResponse from server: ');
+
+  /// 421 (service not available) / x.7.x (policy, auth) / 5.4.5 (Gmail daily
+  /// sending limit): every next mail would be refused too.
+  static bool _quotaOrBlocked(Object e) =>
+      _serverRefused(e) &&
+      RegExp(r'< (421\b|\d{3} [45]\.7\.\d+|\d{3} [45]\.4\.5)')
+          .hasMatch((e as MailerException).message);
+
+  /// The sender (From / envelope) address itself is invalid: a Settings
+  /// problem, not the resident's.
+  static bool _isSenderProblem(SmtpMessageValidationException e) =>
+      e.problems.any((p) => p.code.contains('FROM'));
 
   /// Wrong SMTP settings / no internet: every further send would fail the
   /// same way (and repeated bad logins can get a Gmail account locked).
@@ -57,7 +92,9 @@ class EmailService {
         c is SmtpNoGreetingException ||
         c is HandshakeException ||
         c is TlsException ||
-        (c is SocketException && _isConnectFailure(c));
+        (c is SocketException && _isConnectFailure(c)) ||
+        (c is SmtpMessageValidationException && _isSenderProblem(c)) ||
+        _quotaOrBlocked(c);
   }
 
   static bool _isConnectFailure(SocketException e) {
@@ -71,7 +108,9 @@ class EmailService {
 
   /// Failures that happen before the server accepts the message.
   static bool _beforeDelivery(Object e) =>
-      isConfigError(e) || e is SmtpMessageValidationException;
+      isConfigError(e) ||
+      e is SmtpMessageValidationException ||
+      _serverRefused(e);
 
   /// Sends one receipt email (HTML body + optional PDF attachment
   /// + inline signature) using the SMTP settings stored on the device.
