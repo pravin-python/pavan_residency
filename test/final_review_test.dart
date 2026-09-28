@@ -54,7 +54,7 @@ void main() {
     await tester.pumpAndSettle();
     // First save on this install asks to confirm the counter.
     expect(find.textContaining('#797'), findsOneWidget);
-    await tester.tap(find.text('Haan, sahi hai'));
+    await tester.tap(find.text('Yes, correct'));
     await tester.pumpAndSettle();
 
     final s = await tester.runAsync(SettingsService.load);
@@ -113,7 +113,7 @@ void main() {
         'After sending RCPT TO, response did not start with any of: [250].'
         '\nResponse from server: < 550 5.1.1 No such user');
     expect(EmailService.isConfigError(rcpt), isFalse);
-    expect(EmailService.friendlyError(rcpt), contains('mana kiya'));
+    expect(EmailService.friendlyError(rcpt), contains('refused'));
   });
 
   test('amounts with a decimal comma or /-', () {

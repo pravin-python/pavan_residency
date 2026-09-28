@@ -151,12 +151,14 @@ class SettingsService {
 
   /// Gives back a number from [takeReceiptNo] whose send failed — only if
   /// nothing was taken after it, so the sequence has no gaps / duplicates.
-  static Future<void> releaseReceiptNo(int n) async {
+  /// Returns false when a later number was already taken (the caller should
+  /// then keep using [n] for the same receipt).
+  static Future<bool> releaseReceiptNo(int n) async {
     final s = await load();
-    if (s.nextReceiptNo == n + 1) {
-      s.nextReceiptNo = n;
-      await save(s);
-    }
+    if (s.nextReceiptNo != n + 1) return false;
+    s.nextReceiptNo = n;
+    await save(s);
+    return true;
   }
 
   /// Marks [used] as issued: the counter moves past it.

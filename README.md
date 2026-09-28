@@ -10,7 +10,7 @@ You can send one receipt at a time or many at once from a CSV file.
 | **Owner** | [pravin-python](https://github.com/pravin-python) |
 | **Repository** | https://github.com/pravin-python/pavan_residency |
 | **App id** | `com.pavanresidency.pavan_residency` |
-| **Current version** | `1.1.0+2` (see `version:` in `pubspec.yaml`) |
+| **Current version** | `1.1.1+3` (see `version:` in `pubspec.yaml`; the app shows it at the bottom of **Settings**) |
 | **Android** | 7.0+ (minSdk 24), target SDK 36 |
 | **Built with** | Flutter 3.47 (stable), JDK 17, Android SDK 36 |
 
@@ -38,7 +38,8 @@ You can send one receipt at a time or many at once from a CSV file.
 ## Features
 
 - **Single**: fill the form (Block A/B/C, Payment Mode, Type, Other details), see a PDF preview, and send the email.
-- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All** shows a status for every row, and you can press **Stop** at any time.
+- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All** sends every ready row **in parallel** (4 SMTP connections at once, each logged in once and reused), shows a status for every row, and you can press **Stop** at any time.
+  - The first email is sent alone to check the login, so a wrong password fails once instead of four times.
   - Receipts that were already sent (for example after an interrupted run) are skipped. Long-press a row to send it again.
   - If the password is wrong or Gmail's daily limit is reached, Bulk stops by itself.
 - **Universal receipt**: the payment section is the same for Cash, Cheque and Online. It always shows Mode, Bank, Cheque No. and Transaction No. (`-` if blank).
@@ -164,8 +165,8 @@ Follow these steps, in order, every time you release a new version.
 In `pubspec.yaml`:
 
 ```yaml
-version: 1.1.0+2      # before
-version: 1.1.1+3      # after: raise the name (1.1.1) and ALWAYS raise the number after + (3)
+version: 1.1.1+3      # before
+version: 1.1.2+4      # after: raise the name (1.1.2) and ALWAYS raise the number after + (4)
 ```
 
 > Play Store and Android only accept an update when the number after `+` (versionCode) goes up.
@@ -290,7 +291,8 @@ receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,ban
 
 **General**
 - Export from Excel or Google Sheets as **CSV**. UTF-8, UTF-16, `,` / `;` / tab separated, and an Excel `sep=;` line all work.
-- Column order does not matter and extra columns are ignored. A title line above the header also works.
+- Column order does not matter and extra columns (e.g. `Received`, `OW/RENT`) are ignored. A title line above the header also works.
+- Template rows (only `receipt_no` / `block` / `house_no` filled, with no name, email or amount) are skipped automatically.
 - All values are **case-insensitive** (`Hindi` / `hindi` / `HINDI`).
 
 **Columns**
@@ -304,13 +306,13 @@ receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,ban
 | `house_no` | | Residence / shed no. |
 | `type` | | `Maintenance` (also typos like `Maintance`), `Deposit`, `Transfer fee`, `Other`, or 1/2/3/4. **Other text** such as `Parking charges` or `Other - Parking` becomes Other + details. Blank = Maintenance. |
 | `remarks` | | Details for type **Other** (printed on the Other row of the receipt) |
-| `mode` | | `Cash` / `Cheque` / `Online`. UPI, NEFT, IMPS, GPay, PhonePe, Paytm, ઓનલાઈન and ऑनलाइन also mean Online. **Blank**: Cheque if there is a `cheque_no`, Online if there is a `transaction_number`, otherwise Cash. |
+| `mode` | | `Cash` / `Cheque` / `Online`. UPI, NEFT, IMPS, GPay, PhonePe, Paytm, ઓનલાઈન and ऑनलाइन also mean Online. **Blank**: Cheque if there is a `cheque_no`, Online if there is a `transaction_number` or only a `bank_name`, otherwise Cash. |
 | `cheque_no` | | Cheque number (a leading 0 is kept) |
 | `transaction_number` | | UTR / reference no. (`utr`, `ref_no` also work) |
 | `bank_name` | | For cheque or online (the old name `cheque_bank` also works) |
 | `received_date` | | `2026-09-25`, `25/09/2026`, `25-Sep-2026`, `Sep 25, 2026`, an Excel date number. Excel month-first dates (`9/25/2026`) are detected for the whole file. |
 | `date` | | Receipt date. If blank, `received_date` is used; if that is blank too, today's date. |
-| `language` | | `Gujarati` / `Hindi` / `English` (or gu / hi / en). Blank = Gujarati. |
+| `language` | | `Gujarati` / `Hindi` / `English` (or gu / hi / en). **Blank or not recognised = English.** |
 | `receipt_no` | | **Leave it blank** for an auto number (recommended). If filled, it must be a positive whole number. |
 
 A row with a problem shows **"✗ fix"** in the list, and a red line explains the reason (email, amount, date, receipt_no duplicate ...).
@@ -322,7 +324,7 @@ A row with a problem shows **"✗ fix"** in the list, and a red line explains th
 - **Next Receipt No.** is in Settings. It goes up by 1 after every successful send (794, 795, 796 ...).
 - Single and Bulk **reserve** the number when a send starts, so the same number can never be used twice, even when both run at the same time.
 - If a mail is **certainly not sent** (wrong password, no internet, server refused), its number is released and the next receipt gets it (no gap).
-- If a mail **may have been sent** (the connection dropped mid-send), the number stays used. The app says "pata nahi mail gaya ya nahi"; check the inbox / Sent folder. A retry sends the same number again.
+- If a mail **may have been sent** (the connection dropped mid-send), the number stays used. The app says "Not sure whether the email was delivered"; check the Sent folder. A retry sends the same number again.
 - The app warns you if you type or use a number that may already have been used (below the counter).
 - Reinstall / new phone: backup is off, so the counter goes back to its default. **Confirm it** on the first Save.
 
@@ -406,7 +408,7 @@ the sent log, the signature, error messages, and the small-phone / large-font la
 | `adb devices` shows `unauthorized` | Tap "Allow USB debugging" on the phone, or reconnect the cable. |
 | Email: "Login fail" | Gmail App Password (not the normal password), 2-Step Verification ON. |
 | Email: "SSL error" | Port 465 → SSL ON, port 587 → SSL OFF. |
-| Bulk: "Mail server ne rok diya (daily limit)" | Gmail's daily limit is reached. Try again after a few hours or the next day. Already-sent rows are skipped. |
+| Bulk: "The mail server is blocking sends (daily limit reached ...)" | Gmail's daily limit is reached. Try again after a few hours or the next day. Already-sent rows are skipped. |
 | First build is very slow | Gradle / NDK download the first time (10–15 min). Later builds take 1–3 min. |
 
 ---

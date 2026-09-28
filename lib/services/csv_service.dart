@@ -305,7 +305,11 @@ class CsvService {
           m[key] = v;
         }
       }
-      maps.add(m);
+      // Template rows of the society sheet (only receipt_no / block /
+      // house filled, nobody paid yet): nothing to send, don't list them.
+      final placeholder =
+          [m['name'], m['email'], m['amount']].every((v) => (v ?? '').isEmpty);
+      if (!placeholder) maps.add(m);
     }
 
     // `date` wins; otherwise the payment's received_date; else today.
@@ -342,7 +346,9 @@ class CsvService {
         house: m['house'] ?? '',
         amount: ReceiptData.parseAmount(m['amount'] ?? ''),
         mode: ReceiptData.parseMode(m['mode'] ?? '',
-            chqNo: m['chqno'] ?? '', txnNo: m['txnno'] ?? ''),
+            chqNo: m['chqno'] ?? '',
+            txnNo: m['txnno'] ?? '',
+            bank: m['chqbank'] ?? ''),
         chqNo: m['chqno'] ?? '',
         chqBank: m['chqbank'] ?? '',
         txnNo: m['txnno'] ?? '',

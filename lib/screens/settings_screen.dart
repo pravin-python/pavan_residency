@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/settings_service.dart';
 import '../services/signature_image.dart';
@@ -99,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         withData: true,
       );
     } catch (e) {
-      _snack('File open nahi hui: $e', err: true);
+      _snack('Could not open the file: $e', err: true);
       return;
     }
     final raw = res?.files.single.bytes;
@@ -107,7 +108,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final sig = await SignatureImage.prepare(raw);
     if (!mounted) return;
     if (sig == null) {
-      _snack('Yeh image read nahi hui — jpg / png file chuno', err: true);
+      _snack('This image could not be read. Choose a JPG or PNG file.',
+          err: true);
       return;
     }
     setState(() {
@@ -148,17 +150,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ok = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Next Receipt No. check karo'),
-              content: Text('Agli receipt #$no se chhapegi.\n\n'
-                  'Purane phone / receipt book ka last number + 1 hona '
-                  'chahiye, warna numbers repeat honge. Sahi hai?'),
+              title: const Text('Check the Next Receipt No.'),
+              content: Text('The next receipt will be #$no.\n\n'
+                  'It should be the last number used on the old phone or in '
+                  'the receipt book + 1, otherwise numbers will repeat. Is '
+                  'this correct?'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Change karna hai')),
+                    child: const Text('No, change it')),
                 FilledButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Haan, sahi hai')),
+                    child: const Text('Yes, correct')),
               ],
             ),
           ) ??
@@ -247,7 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: InputDecoration(
             labelText: 'Password / App Password *',
             helperText:
-                'Gmail: 2-Step Verification on karke App Password banao',
+                'Gmail: turn on 2-Step Verification, then create an App Password',
             suffixIcon: IconButton(
               icon: Icon(_hidePass ? Icons.visibility : Icons.visibility_off),
               onPressed: () => setState(() => _hidePass = !_hidePass),
@@ -279,7 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('PDF attachment bhi bhejo'),
+          title: const Text('Attach the receipt as a PDF'),
           value: _attachPdf,
           onChanged: (v) => setState(() => _attachPdf = v),
         ),
@@ -288,7 +291,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
                 labelText: 'Next Receipt No.',
-                helperText: 'Agli receipt ka number — har send ke baad +1')),
+                helperText:
+                    'Number of the next receipt. Goes up by 1 after each send.')),
         const Divider(height: 30),
         const Text('Signature Image (jpg / jpeg / png)',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
@@ -321,6 +325,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           icon: const Icon(Icons.save),
           label: const Text('Save Settings'),
           onPressed: _save,
+        ),
+        const SizedBox(height: 16),
+        // Shows which build is installed (e.g. after updating the APK).
+        FutureBuilder<PackageInfo>(
+          future: PackageInfo.fromPlatform(),
+          builder: (_, snap) => Text(
+            snap.hasData
+                ? 'App version ${snap.data!.version} '
+                    '(build ${snap.data!.buildNumber})'
+                : '',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
         ),
         const SizedBox(height: 30),
       ],

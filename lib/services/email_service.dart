@@ -27,28 +27,29 @@ class EmailService {
   static String friendlyError(Object e) {
     if (e is NotSentException) e = e.cause;
     if (e is SmtpClientAuthenticationException) {
-      return 'Login fail: username / password galat. Gmail ho to normal '
-          'password nahi, 16-letter App Password daalo.';
+      return 'Login failed: wrong username or password. For Gmail, use a '
+          '16-letter App Password, not your normal password.';
     }
     if (e is HandshakeException || e is TlsException) {
-      return 'SSL error: port 465 ke saath SSL ON, port 587 ke saath SSL OFF '
-          'rakho.';
+      return 'SSL error: use port 465 with SSL on, or port 587 with SSL '
+          'off.';
     }
     if (e is SocketException) {
-      return 'Connect nahi hua: internet check karo, ya SMTP host / port '
-          'galat hai.';
+      return 'Could not connect. Check the internet connection and the SMTP '
+          'host / port.';
     }
     if (e is TimeoutException) {
-      return 'Server ne jawab nahi diya (timeout). Internet / port check karo.';
+      return 'The mail server did not respond (timeout). Check the internet '
+          'connection and the port.';
     }
     if (e is SmtpMessageValidationException) {
       final probs = e.problems.map((p) => p.msg).join('; ');
       return _isSenderProblem(e)
-          ? 'Sender email galat hai (Settings > Sender Email / Username): '
+          ? 'Invalid sender email (Settings > Sender Email / Username): '
               '$probs'
-          : 'Email address galat hai: $probs';
+          : 'Invalid email address: $probs';
     }
-    if (e is ArgumentError) return 'Email address galat hai: ${e.message}';
+    if (e is ArgumentError) return 'Invalid email address: ${e.message}';
     if (_serverRefused(e)) {
       final reply = (e as MailerException)
           .message
@@ -56,10 +57,10 @@ class EmailService {
           .last
           .trim();
       if (_quotaOrBlocked(e)) {
-        return 'Mail server ne rok diya (daily limit / blocked) — kuch der '
-            'baad try karo: $reply';
+        return 'The mail server is blocking sends (daily limit reached or '
+            'account blocked). Try again later. Server reply: $reply';
       }
-      return 'Mail server ne mana kiya: $reply';
+      return 'The mail server refused the email. Server reply: $reply';
     }
     if (e is MailerException) return 'Mail server error: ${e.message}';
     return '$e';
@@ -119,7 +120,13 @@ class EmailService {
   /// any other exception means delivery is uncertain (e.g. the connection
   /// dropped after the data was sent), so callers must not reuse the
   /// receipt no. in that case.
-  static Future<void> sendReceipt(AppSettings s, ReceiptData d) async {
+  static Future<void> sendReceipt(AppSettings s, ReceiptData d) =>
+      _deliver(s, d, (message, server) => send(message, server));
+
+  /// Builds the mail, hands it to [transport], classifies failures and does
+  /// the book-keeping after a successful send.
+  static Future<void> _deliver(AppSettings s, ReceiptData d,
+      Future<void> Function(Message, SmtpServer) transport) async {
     final Message message;
     final SmtpServer server;
     try {
@@ -128,7 +135,7 @@ class EmailService {
       throw NotSentException(e);
     }
     try {
-      await send(message, server);
+      await transport(message, server);
     } catch (e) {
       if (_beforeDelivery(e)) throw NotSentException(e);
       rethrow;
@@ -144,7 +151,8 @@ class EmailService {
   static Future<(Message, SmtpServer)> _build(
       AppSettings s, ReceiptData d) async {
     if (!s.isConfigured) {
-      throw Exception('SMTP settings missing - Settings tab bharo.');
+      throw Exception(
+          'SMTP settings are missing. Fill them in on the Settings tab.');
     }
 
     String cleanedPassword = s.password;
@@ -196,5 +204,40 @@ class EmailService {
     }
 
     return (message, server);
+  }
+}
+
+/// One logged-in SMTP connection that sends many receipts one after another
+/// (Bulk). Logging in once per connection instead of once per mail is much
+/// faster and avoids repeated logins, which Gmail may treat as suspicious.
+/// Several sessions can run side by side. After any error the connection is
+/// dropped and the next mail opens a fresh one.
+class SmtpSession {
+  SmtpSession(this.settings);
+
+  final AppSettings settings;
+  PersistentConnection? _conn;
+
+  /// Same contract as [EmailService.sendReceipt].
+  Future<void> sendReceipt(ReceiptData d) =>
+      EmailService._deliver(settings, d, (message, server) async {
+        _conn ??= PersistentConnection(server);
+        try {
+          await _conn!.send(message);
+        } catch (_) {
+          await close(); // the connection may be broken: reconnect next time
+          rethrow;
+        }
+      });
+
+  Future<void> close() async {
+    final c = _conn;
+    _conn = null;
+    if (c == null) return;
+    try {
+      await c.close().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Already broken: nothing to close.
+    }
   }
 }

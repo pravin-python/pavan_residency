@@ -44,7 +44,7 @@ void main() {
 
     await tester.tap(find.text('Bulk CSV'));
     await tester.pumpAndSettle();
-    expect(find.text('CSV File Choose Karo'), findsOneWidget);
+    expect(find.text('Choose CSV File'), findsOneWidget);
 
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();

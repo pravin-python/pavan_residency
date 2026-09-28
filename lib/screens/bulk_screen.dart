@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -18,6 +19,11 @@ import '../utils/file_saver.dart';
 class BulkScreen extends StatefulWidget {
   const BulkScreen({super.key});
 
+  /// How many emails are sent at the same time (one SMTP connection each).
+  /// Gmail allows a few parallel connections; more would risk being
+  /// throttled.
+  static const parallel = 4;
+
   @override
   State<BulkScreen> createState() => _BulkScreenState();
 }
@@ -29,9 +35,11 @@ class _BulkScreenState extends State<BulkScreen> {
   int _total = 0;
   bool _stop = false;
 
-  /// Rows whose send failed after the mail may already have gone out: they
-  /// keep their receipt no. (a retry re-sends the same receipt).
-  final _uncertain = <ReceiptData>{};
+  /// Rows that own their receipt no. already (a send that may have been
+  /// delivered, a number that could not be given back, or a deliberate
+  /// re-send): a retry uses the same number and they don't trigger the
+  /// "number may already be used" warning.
+  final _ownsNumber = <ReceiptData>{};
 
   Future<void> _pickCsv() async {
     try {
@@ -64,17 +72,17 @@ class _BulkScreenState extends State<BulkScreen> {
         _rows = rows;
         _done = 0;
         _total = 0;
-        _uncertain.clear();
+        _ownsNumber.clear();
       });
       if (rows.isEmpty) {
-        _snack('CSV mein koi row nahi mili — header + data check karo',
+        _snack('No rows found in the CSV. Check the header and the data.',
             err: true);
       } else if (before > 0) {
-        _snack('$before row pehle hi bheji ja chuki hain — woh skip hongi. '
-            'Dobara bhejni ho to row par long-press karo.');
+        _snack('$before ${before == 1 ? 'row was' : 'rows were'} already sent '
+            'earlier and will be skipped. Long-press a row to send it again.');
       }
     } catch (e) {
-      _snack('CSV read nahi hui: $e', err: true);
+      _snack('Could not read the CSV file: $e', err: true);
     }
   }
 
@@ -88,7 +96,7 @@ class _BulkScreenState extends State<BulkScreen> {
     for (final r in rows) {
       if (r.recNo > 0 && count[r.recNo]! > 1) {
         r.status = SendStatus.invalid;
-        r.error = 'receipt_no ${r.recNo} duplicate';
+        r.error = 'duplicate receipt_no ${r.recNo}';
       }
     }
   }
@@ -104,7 +112,7 @@ class _BulkScreenState extends State<BulkScreen> {
                 child: const Text('Cancel')),
             FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Haan, bhejo')),
+                child: const Text('Yes, send')),
           ],
         ),
       ) ??
@@ -120,9 +128,9 @@ class _BulkScreenState extends State<BulkScreen> {
         fileName: 'pavan_bulk_sample.csv',
         mimeType: 'text/csv',
       );
-      if (saved) _snack('✓ Demo CSV saved');
+      if (saved) _snack('✓ Sample CSV saved');
     } catch (e) {
-      _snack('Error downloading demo CSV: $e', err: true);
+      _snack('Could not save the sample CSV: $e', err: true);
     }
   }
 
@@ -149,20 +157,19 @@ class _BulkScreenState extends State<BulkScreen> {
   /// receipt no.).
   Future<void> _allowResend(ReceiptData r) async {
     if (_sending || r.status != SendStatus.sent) return;
-    final ok = await _confirm('${r.name} ko receipt #${r.recNo} dobara '
-        'bhejni hai?');
+    final ok = await _confirm('Send receipt #${r.recNo} to ${r.name} again?');
     if (!ok || !mounted) return;
     setState(() {
       r.status = SendStatus.ready;
       r.sentBefore = false;
-      _uncertain.add(r); // keeps its number, no "used number" warning
+      _ownsNumber.add(r);
     });
   }
 
   Future<void> _sendAll() async {
     final s = await SettingsService.load();
     if (!s.isConfigured) {
-      _snack('Pehle Settings mein SMTP details bharo!', err: true);
+      _snack('Fill in the SMTP details in Settings first.', err: true);
       return;
     }
     final todo = _rows
@@ -170,20 +177,23 @@ class _BulkScreenState extends State<BulkScreen> {
             (r) => r.status == SendStatus.ready || r.status == SendStatus.error)
         .toList();
     if (todo.isEmpty) {
-      _snack('Koi row ready nahi hai', err: true);
+      _snack('No rows are ready to send.', err: true);
       return;
     }
     final used = todo
         .where((r) =>
-            r.recNo > 0 && r.recNo < s.nextReceiptNo && !_uncertain.contains(r))
+            r.recNo > 0 &&
+            r.recNo < s.nextReceiptNo &&
+            !_ownsNumber.contains(r))
         .map((r) => r.recNo)
         .toList();
     if (used.isNotEmpty) {
-      final ok = await _confirm('${used.length} row ke receipt no. '
-          '(${used.take(5).join(', ')}${used.length > 5 ? ' …' : ''}) pehle '
-          'issue ho chuke ho sakte hain — next no. ${s.nextReceiptNo} hai. '
-          'Phir bhi inhi numbers se bhejna hai?\n\n'
-          '(Auto number ke liye CSV mein receipt_no khali chhodo.)');
+      final ok = await _confirm('${used.length} '
+          '${used.length == 1 ? 'row uses a receipt number' : 'rows use receipt numbers'} '
+          '(${used.take(5).join(', ')}${used.length > 5 ? ' …' : ''}) that may '
+          'already have been issued. The next number is ${s.nextReceiptNo}. '
+          'Send with these numbers anyway?\n\n'
+          'Tip: leave receipt_no blank in the CSV to get automatic numbers.');
       if (!ok || !mounted) return;
     }
     setState(() {
@@ -201,51 +211,84 @@ class _BulkScreenState extends State<BulkScreen> {
     // them (CSV with blank + typed numbers, or a Single send meanwhile).
     final explicit = todo.where((r) => r.recNo > 0).map((r) => r.recNo).toSet();
     SettingsService.reserve(explicit);
-    try {
-      for (final r in todo) {
-        if (_stop) break;
-        if (mounted) setState(() => r.status = SendStatus.sending);
-        final fresh = await SettingsService.load();
-        // Auto receipt no.: a blank row reserves the next number from the
-        // live counter → 794, 795, 796 … (1++), never shared with a Single
-        // send made meanwhile.
-        final autoNo = r.recNo == 0;
+
+    Future<void> sendOne(ReceiptData r, SmtpSession session) async {
+      if (mounted) setState(() => r.status = SendStatus.sending);
+      // Auto receipt no.: a blank row reserves the next number from the
+      // live counter → 794, 795, 796 … (1++), never shared with a Single
+      // send made meanwhile.
+      final autoNo = r.recNo == 0;
+      try {
         if (autoNo) r.recNo = await SettingsService.takeReceiptNo();
-        try {
-          await EmailService.sendReceipt(fresh, r);
-          r.status = SendStatus.sent;
-          r.error = '';
-          _uncertain.remove(r);
-          sent++;
-        } on NotSentException catch (e) {
-          r.status = SendStatus.error;
-          r.error = EmailService.friendlyError(e);
-          // Certainly not delivered: give the auto number back so a retry
-          // takes a fresh one (no duplicate, no gap).
-          if (autoNo && !_uncertain.contains(r)) {
-            await SettingsService.releaseReceiptNo(r.recNo);
+        await session.sendReceipt(r);
+        r.status = SendStatus.sent;
+        r.error = '';
+        _ownsNumber.remove(r);
+        sent++;
+      } on NotSentException catch (e) {
+        r.status = SendStatus.error;
+        r.error = EmailService.friendlyError(e);
+        // Certainly not delivered: give the auto number back so a retry
+        // takes a fresh one. If a later number was already taken (parallel
+        // sends), the row keeps this one instead — no gap, no duplicate.
+        if (autoNo && r.recNo > 0 && !_ownsNumber.contains(r)) {
+          if (await SettingsService.releaseReceiptNo(r.recNo)) {
             r.recNo = 0;
+          } else {
+            _ownsNumber.add(r);
           }
-          // Wrong password / host / no internet: every next row would fail
-          // the same way (and repeated bad logins can lock the Gmail).
-          if (EmailService.isConfigError(e)) abortReason = r.error;
-        } catch (e) {
-          // The mail may have been delivered: keep its number so it is
-          // never given to another resident. A retry re-sends this receipt.
-          r.status = SendStatus.error;
-          r.error = 'Pata nahi mail gaya ya nahi (receipt #${r.recNo}) — '
-              '${EmailService.friendlyError(e)}';
-          _uncertain.add(r);
-          // ... and count the number as used, so the counter never hands
-          // it to another resident.
-          await SettingsService.bumpReceiptNo(r.recNo).catchError((_) {});
         }
-        if (mounted) setState(() => _done++);
-        if (abortReason != null) break;
-        // Small gap so SMTP servers don't rate-limit us.
-        await Future.delayed(const Duration(milliseconds: 1200));
+        // Wrong password / host / no internet / daily limit: every next row
+        // would fail the same way (and repeated bad logins can lock Gmail).
+        if (EmailService.isConfigError(e)) abortReason ??= r.error;
+      } catch (e) {
+        // The mail may have been delivered: keep its number so it is never
+        // given to another resident. A retry re-sends this same receipt.
+        r.status = SendStatus.error;
+        r.error = 'Not sure whether the email was delivered '
+            '(receipt #${r.recNo}): ${EmailService.friendlyError(e)} '
+            'Check the Sent folder before sending again.';
+        _ownsNumber.add(r);
+        await SettingsService.bumpReceiptNo(r.recNo).catchError((_) {});
+      }
+      if (mounted) setState(() => _done++);
+    }
+
+    final sessions = <SmtpSession>[];
+    SmtpSession newSession() {
+      final x = SmtpSession(s);
+      sessions.add(x);
+      return x;
+    }
+
+    var next = 0;
+    bool keepGoing() => !_stop && abortReason == null && next < todo.length;
+
+    Future<void> worker(SmtpSession session) async {
+      while (keepGoing()) {
+        final r = todo[next++];
+        await sendOne(r, session);
+        // Small gap per connection so the SMTP server doesn't throttle us.
+        if (keepGoing()) {
+          await Future.delayed(const Duration(milliseconds: 250));
+        }
+      }
+    }
+
+    try {
+      // The first email goes alone: it checks the login once, so a wrong
+      // password fails one login instead of [BulkScreen.parallel] at once.
+      final first = newSession();
+      await sendOne(todo[next++], first);
+      if (keepGoing()) {
+        final workers = min(BulkScreen.parallel, todo.length - next);
+        await Future.wait([
+          worker(first),
+          for (var i = 1; i < workers; i++) worker(newSession()),
+        ]);
       }
     } finally {
+      await Future.wait(sessions.map((x) => x.close()));
       SettingsService.unreserve(explicit);
       await WakelockPlus.disable().catchError((_) {});
       for (final r in todo.where((r) => r.status == SendStatus.sending)) {
@@ -256,11 +299,12 @@ class _BulkScreenState extends State<BulkScreen> {
     final left = todo.where((r) => r.status == SendStatus.ready).length;
     final failed = todo.where((r) => r.status == SendStatus.error).length;
     if (abortReason != null) {
-      _snack('Bulk ruk gaya: $abortReason (Settings check karo)', err: true);
+      _snack('Bulk send stopped: $abortReason Check Settings, then try again.',
+          err: true);
     } else {
       _snack(
-          'Bulk: $sent sent, $failed failed'
-          '${left > 0 ? ', $left baaki (stopped)' : ''}',
+          'Bulk send finished: $sent sent, $failed failed'
+          '${left > 0 ? ', $left not sent (stopped)' : ''}.',
           err: failed > 0);
     }
   }
@@ -310,7 +354,7 @@ class _BulkScreenState extends State<BulkScreen> {
     return PopScope(
       canPop: !_sending,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _snack('Bulk send chal raha hai — pehle Stop dabao');
+        if (!didPop) _snack('Bulk send is running. Tap Stop first.');
       },
       // One scroll view for header + rows: with a large font scale or a
       // small phone nothing gets pushed under the navigation bar.
@@ -322,7 +366,7 @@ class _BulkScreenState extends State<BulkScreen> {
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             OutlinedButton.icon(
               icon: const Icon(Icons.upload_file),
-              label: const Text('CSV File Choose Karo'),
+              label: const Text('Choose CSV File'),
               onPressed: _sending ? null : _pickCsv,
             ),
             if (_rows.isEmpty) ...[
@@ -349,19 +393,20 @@ class _BulkScreenState extends State<BulkScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // Wrap: on a narrow phone / large font the button
+                      // moves to its own line instead of overflowing.
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          const Expanded(
-                            child: Text(
-                              'CSV Format Guidelines:',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
+                          const Text(
+                            'CSV Format Guidelines:',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                           TextButton.icon(
                             icon: const Icon(Icons.download, size: 16),
-                            label: const Text('Download Demo CSV',
+                            label: const Text('Download Sample CSV',
                                 style: TextStyle(fontSize: 12)),
                             onPressed: _downloadDemoCsv,
                             style: TextButton.styleFrom(
@@ -375,12 +420,12 @@ class _BulkScreenState extends State<BulkScreen> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        '• Required columns: name, email, block, house_no, amount, language, type\n'
-                        '• Optional columns: receipt_no, mode, cheque_no, transaction_number, bank_name, received_date, remarks\n'
-                        '• Mode: cash, cheque, online (blank = cheque_no ho to Cheque, transaction_number ho to Online, warna Cash)\n'
-                        '• Block: A, B, C  •  Languages: english, gujarati, hindi\n'
-                        '• Types: maintenance, deposit, transfer, other (details remarks column mein, ya type mein hi text likho)\n'
-                        '• Capital / small letters dono chalenge',
+                        '• Required columns: name, email, amount\n'
+                        '• Optional columns: receipt_no, block, house_no, type, mode, cheque_no, transaction_number, bank_name, received_date, language, remarks\n'
+                        '• Mode: cash, cheque, online. If blank: Cheque when cheque_no is filled, Online when transaction_number or bank_name is filled, otherwise Cash.\n'
+                        '• Block: A, B, C  •  Language: english, gujarati, hindi (blank = English)\n'
+                        '• Type: maintenance, deposit, transfer, other. For Other, put the details in remarks (or write them in the type column).\n'
+                        '• Upper / lower case does not matter.',
                         style: TextStyle(
                             fontSize: 11.5, height: 1.4, color: Colors.black87),
                       ),
@@ -403,7 +448,7 @@ class _BulkScreenState extends State<BulkScreen> {
                 OutlinedButton.icon(
                   icon: const Icon(Icons.stop),
                   label: Text(
-                      _stop ? 'Stopping…' : 'Stop  ($_done / $_total sent)'),
+                      _stop ? 'Stopping…' : 'Stop  ($_done / $_total done)'),
                   onPressed: _stop ? null : () => setState(() => _stop = true),
                 )
               else
@@ -421,7 +466,7 @@ class _BulkScreenState extends State<BulkScreen> {
                 child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                    'CSV upload karo — sample/demo file download option upar hai',
+                    'Upload a CSV file. You can download a sample file above.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey)),
               ))
@@ -451,7 +496,7 @@ class _BulkScreenState extends State<BulkScreen> {
                               style: const TextStyle(fontSize: 11.5)),
                           if (r.sentBefore)
                             const Text(
-                                'Pehle bheja ja chuka — long-press = dobara',
+                                'Already sent earlier. Long-press to send again.',
                                 style: TextStyle(
                                     fontSize: 11, color: Colors.green)),
                           if (problem.isNotEmpty)

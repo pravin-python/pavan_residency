@@ -91,7 +91,7 @@ class _SingleScreenState extends State<SingleScreen> {
                 child: const Text('Cancel')),
             FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Haan, bhejo')),
+                child: const Text('Yes, send')),
           ],
         ),
       ) ??
@@ -138,14 +138,14 @@ class _SingleScreenState extends State<SingleScreen> {
     final d = _collect();
     final s = await SettingsService.load();
     if (!s.isConfigured) {
-      _snack('Pehle Settings tab mein SMTP details bharo!', err: true);
+      _snack('Fill in the SMTP details on the Settings tab first.', err: true);
       return;
     }
     final auto = _recNoIsAuto;
     if (!auto && d.recNo < s.nextReceiptNo) {
-      final ok = await _confirm('Receipt #${d.recNo} pehle issue ho chuka ho '
-          'sakta hai (next no. ${s.nextReceiptNo} hai). Phir bhi isi number '
-          'se bhejna hai?');
+      final ok = await _confirm('Receipt #${d.recNo} may already have been '
+          'issued (the next number is ${s.nextReceiptNo}). Send with this '
+          'number anyway?');
       if (!ok || !mounted) return;
     }
     setState(() => _sending = true);
@@ -160,7 +160,7 @@ class _SingleScreenState extends State<SingleScreen> {
         try {
           d.recNo = await SettingsService.takeReceiptNo();
         } catch (e) {
-          _snack('✗ Receipt no. save nahi hua: $e', err: true);
+          _snack('✗ Could not save the receipt number: $e', err: true);
           return;
         }
       }
@@ -178,8 +178,9 @@ class _SingleScreenState extends State<SingleScreen> {
         // given to anyone else.
         await SettingsService.bumpReceiptNo(d.recNo).catchError((_) {});
         _snack(
-            '✗ Pata nahi mail gaya ya nahi (receipt #${d.recNo}) — '
-            '${EmailService.friendlyError(e)}. Inbox / Sent check karo.',
+            '✗ Not sure whether the email was delivered (receipt '
+            '#${d.recNo}): ${EmailService.friendlyError(e)} Check the Sent '
+            'folder before sending again.',
             err: true);
       }
     } finally {
@@ -289,7 +290,7 @@ class _SingleScreenState extends State<SingleScreen> {
               controller: _remark,
               maxLength: ReceiptData.maxRemark,
               decoration: const InputDecoration(
-                labelText: 'Other details * (receipt mein chhapega)',
+                labelText: 'Other details * (printed on the receipt)',
                 hintText: 'e.g. Parking charges, Late fee',
               ),
               validator: (v) =>

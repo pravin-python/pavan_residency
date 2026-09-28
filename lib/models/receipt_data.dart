@@ -102,16 +102,20 @@ class ReceiptData {
 
   /// Case-insensitive: 'Cash' / 'Cheque' / 'Check' / 'Online' / 'UPI' /
   /// 'NEFT' / 'GPay' / 'PhonePe' ... (Gujarati / Hindi words too).
-  /// Blank mode is inferred: cheque no. => cheque, transaction no. => online,
-  /// otherwise cash. An unrecognised mode (e.g. 'Wallet') is not cash:
+  /// Blank mode is inferred: cheque no. => cheque, transaction no. or a bank
+  /// name => online, otherwise cash. An unrecognised mode (e.g. 'Wallet') is not cash:
   /// cheque if a cheque no. is given, else online.
   static PaymentMode parseMode(String v,
-      {String chqNo = '', String txnNo = ''}) {
+      {String chqNo = '', String txnNo = '', String bank = ''}) {
     final s = v.trim().toLowerCase();
     final hasChq = chqNo.trim().isNotEmpty;
     if (s.isEmpty) {
       if (hasChq) return PaymentMode.cheque;
-      if (txnNo.trim().isNotEmpty) return PaymentMode.online;
+      // A transaction no. or just a bank name (no cheque no.) = paid into
+      // the bank, not cash.
+      if (txnNo.trim().isNotEmpty || bank.trim().isNotEmpty) {
+        return PaymentMode.online;
+      }
       return PaymentMode.cash;
     }
     bool any(List<String> keys) => keys.any(s.contains);
@@ -178,13 +182,16 @@ class ReceiptData {
   }
 
   /// 'gujarati' / 'hindi' / 'english' / 'gu' / 'hi' / 'en' / native names.
+  /// Blank or not recognised => English.
   static String parseLang(String v) {
     final s = v.trim().toLowerCase();
     if (s.startsWith('hi') || s.contains('हि') || s.contains('hindi')) {
       return 'hi';
     }
-    if (s.startsWith('en') || s.contains('english')) return 'en';
-    return 'gu';
+    if (s.startsWith('gu') || s.contains('guj') || s.contains('ગુજ')) {
+      return 'gu';
+    }
+    return 'en';
   }
 
   /// 'Other', 'Others', 'Other - Parking', 'Anya: ...' (+ Gujarati / Hindi).
