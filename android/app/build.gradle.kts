@@ -56,13 +56,11 @@ android {
 
     buildTypes {
         release {
-            // Use the real release key when key.properties is present;
-            // otherwise fall back to debug so builds never break.
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            // Always the real release key (android/key.properties). A missing
+            // key fails the build below instead of silently signing with the
+            // debug key (Play rejects that, and phones refuse to update an
+            // app whose signing key changed).
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -77,4 +75,16 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+gradle.taskGraph.whenReady {
+    if (!hasReleaseKeystore &&
+        allTasks.any { it.project == project && it.name.contains("Release") }
+    ) {
+        throw GradleException(
+            "android/key.properties is missing - refusing to build a release " +
+                "signed with the debug key. Restore key.properties + " +
+                "pavan-release.jks from your backup (see key.properties.example)."
+        )
+    }
 }

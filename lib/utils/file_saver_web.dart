@@ -2,7 +2,7 @@
 import 'dart:html' as html;
 import 'dart:typed_data';
 
-Future<void> saveFile({
+Future<bool> saveFile({
   required Uint8List bytes,
   required String fileName,
   required String mimeType,
@@ -13,4 +13,5 @@ Future<void> saveFile({
     ..setAttribute('download', fileName)
     ..click();
   html.Url.revokeObjectUrl(url);
+  return true;
 }

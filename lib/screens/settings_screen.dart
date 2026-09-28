@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../services/signature_image.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,6 +28,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hidePass = true;
   AppSettings? _s;
 
+  /// Next receipt no. last shown in the field. Save only changes the counter
+  /// when the user edited the field — otherwise sends made since this screen
+  /// loaded would be rolled back and numbers reused.
+  int? _shownNextNo;
+
   @override
   void initState() {
     super.initState();
@@ -42,25 +48,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _senderEmail.text = s.senderEmail;
         _subject.text = s.subjectTpl;
         _nextNo.text = '${s.nextReceiptNo}';
+        _shownNextNo = s.nextReceiptNo;
         _ssl = s.ssl;
         _attachPdf = s.attachPdf;
       });
     });
+    SettingsService.changes.addListener(_syncNextNo);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.changes.removeListener(_syncNextNo);
+    for (final c in [
+      _host,
+      _port,
+      _user,
+      _pass,
+      _senderName,
+      _senderEmail,
+      _subject,
+      _nextNo,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Receipts sent from the other tabs move the counter: show the live value
+  /// unless the user is editing the field.
+  void _syncNextNo() {
+    final s = _s;
+    if (s == null || !mounted) return;
+    if (_nextNo.text.trim() == '$_shownNextNo' &&
+        s.nextReceiptNo != _shownNextNo) {
+      setState(() {
+        _shownNextNo = s.nextReceiptNo;
+        _nextNo.text = '${s.nextReceiptNo}';
+      });
+    }
   }
 
   Future<void> _pickSignature() async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png'],
-      withData: true,
-    );
-    final f = res?.files.single;
-    if (f?.bytes == null) return;
-    final ext = (f!.extension ?? 'png').toLowerCase();
+    final s = _s;
+    if (s == null) return; // settings still loading
+    final FilePickerResult? res;
+    try {
+      res = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+    } catch (e) {
+      _snack('File open nahi hui: $e', err: true);
+      return;
+    }
+    final raw = res?.files.single.bytes;
+    if (raw == null) return; // cancelled
+    final sig = await SignatureImage.prepare(raw);
+    if (!mounted) return;
+    if (sig == null) {
+      _snack('Yeh image read nahi hui — jpg / png file chuno', err: true);
+      return;
+    }
     setState(() {
-      _s!.signatureB64 = base64Encode(f.bytes!);
-      _s!.signatureMime = ext == 'png' ? 'image/png' : 'image/jpeg';
+      s.signatureB64 = base64Encode(sig.bytes);
+      s.signatureMime = sig.mime;
     });
+    // Persist right away so the preview/sent receipts and the next app
+    // start agree with what is shown here.
+    await SettingsService.save(s);
+    _snack('Signature saved ✓');
+  }
+
+  Future<void> _removeSignature() async {
+    final s = _s;
+    if (s == null) return;
+    setState(() => s.signatureB64 = '');
+    await SettingsService.save(s);
+  }
+
+  void _snack(String msg, {bool err = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: err ? Colors.red.shade800 : Colors.green,
+    ));
   }
 
   Future<void> _save() async {
@@ -69,10 +141,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     s.port = int.tryParse(_port.text) ?? 465;
     s.ssl = _ssl;
     s.username = _user.text.trim();
-    
+
     String cleanedPassword = _pass.text;
     // Auto-clean Gmail App Passwords (which are 16 letters, generated as 4 blocks of 4 separated by spaces)
-    if (s.host.toLowerCase().contains('gmail') || s.username.toLowerCase().contains('gmail')) {
+    if (s.host.toLowerCase().contains('gmail') ||
+        s.username.toLowerCase().contains('gmail')) {
       cleanedPassword = cleanedPassword.replaceAll(' ', '');
     }
     s.password = cleanedPassword;
@@ -83,8 +156,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'Pavan Residency Receipt #{no}'
         : _subject.text.trim();
     s.attachPdf = _attachPdf;
-    s.nextReceiptNo = int.tryParse(_nextNo.text) ?? 1;
+    final typedNo = int.tryParse(_nextNo.text.trim());
+    if (typedNo != null && typedNo > 0 && typedNo != _shownNextNo) {
+      s.nextReceiptNo = typedNo; // deliberately changed by the user
+    }
     await SettingsService.save(s);
+    _shownNextNo = s.nextReceiptNo;
+    _nextNo.text = '${s.nextReceiptNo}';
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Settings saved ✓'), backgroundColor: Colors.green));
@@ -153,8 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(
               child: TextField(
                   controller: _senderName,
-                  decoration:
-                      const InputDecoration(labelText: 'Sender Name'))),
+                  decoration: const InputDecoration(labelText: 'Sender Name'))),
           const SizedBox(width: 10),
           Expanded(
               child: TextField(
@@ -181,8 +258,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         TextField(
             controller: _nextNo,
             keyboardType: TextInputType.number,
-            decoration:
-                const InputDecoration(labelText: 'Next Receipt No.')),
+            decoration: const InputDecoration(labelText: 'Next Receipt No.')),
         const Divider(height: 30),
         const Text('Signature Image (jpg / jpeg / png)',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
@@ -206,7 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(width: 10),
           if (sig != null)
             TextButton(
-              onPressed: () => setState(() => _s!.signatureB64 = ''),
+              onPressed: _removeSignature,
               child: const Text('Remove'),
             ),
         ]),

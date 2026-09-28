@@ -4,8 +4,8 @@ import 'package:pavan_residency/services/amount_words.dart';
 void main() {
   group('amountToWords', () {
     test('English', () {
-      expect(amountToWords(1500, 'en'),
-          'One Thousand Five Hundred Rupees Only');
+      expect(
+          amountToWords(1500, 'en'), 'One Thousand Five Hundred Rupees Only');
       expect(amountToWords(125750, 'en'),
           'One Lakh Twenty Five Thousand Seven Hundred Fifty Rupees Only');
       expect(amountToWords(10000000, 'en'), 'One Crore Rupees Only');
@@ -20,8 +20,8 @@ void main() {
 
     test('Hindi', () {
       expect(amountToWords(1500, 'hi'), 'एक हज़ार पाँच सौ रुपये मात्र');
-      expect(amountToWords(20579, 'hi'),
-          'बीस हज़ार पाँच सौ उन्यासी रुपये मात्र');
+      expect(
+          amountToWords(20579, 'hi'), 'बीस हज़ार पाँच सौ उन्यासी रुपये मात्र');
     });
 
     test('word tables are complete (index 1..99)', () {

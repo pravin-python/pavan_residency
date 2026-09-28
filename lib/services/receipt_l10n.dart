@@ -4,10 +4,11 @@ import '../models/receipt_data.dart';
 /// receipt book of Pavan Residency).
 class ReceiptL10n {
   final String society, reg, addr, title, recNo, date, name, block, flat;
-  final String chq, bank, cash, pay, received, words, total, note, sign;
+  final String chq, bank, pay, txn, received, words, total, note, sign;
   final List<String> col; // [No., Particulars, Amount]
   final List<String> nums; // row numbers
   final Map<PaymentType, String> rows;
+  final Map<PaymentMode, String> modes;
   final String fontFamily; // Flutter font family for previews
 
   const ReceiptL10n({
@@ -22,8 +23,8 @@ class ReceiptL10n {
     required this.flat,
     required this.chq,
     required this.bank,
-    required this.cash,
     required this.pay,
+    required this.txn,
     required this.received,
     required this.words,
     required this.total,
@@ -32,6 +33,7 @@ class ReceiptL10n {
     required this.col,
     required this.nums,
     required this.rows,
+    required this.modes,
     required this.fontFamily,
   });
 
@@ -47,12 +49,13 @@ class ReceiptL10n {
     flat: 'રહેઠાણ / શેડ નં.',
     chq: 'ચેક નં.',
     bank: 'બેંક',
-    cash: 'રોકડ',
     pay: 'ચુકવણી',
+    txn: 'ટ્રાન્ઝેક્શન નં.',
     received: 'તરફથી નીચેની વિગતે રકમ મળી છે:',
     words: 'અંકે રૂપિયા',
     total: 'ટોટલ',
-    note: 'તા.ક. : ચેકથી ચુકવણીના કિસ્સામાં ચેક ક્લિયર થયા બાદ જ પહોંચ માન્ય ગણાશે.',
+    note:
+        'તા.ક. : ચેકથી ચુકવણીના કિસ્સામાં ચેક ક્લિયર થયા બાદ જ પહોંચ માન્ય ગણાશે.',
     sign: 'વસૂલ કરનારની સહી',
     col: ['ક્રમ', 'વિગત', 'રકમ (રૂ.)'],
     nums: ['૧)', '૨)', '૩)', '૪)'],
@@ -61,6 +64,11 @@ class ReceiptL10n {
       PaymentType.deposit: 'મેન્ટેનન્સ પેટે ડિપોઝિટ',
       PaymentType.transfer: 'ટ્રાન્સફર ફી',
       PaymentType.other: 'અન્ય',
+    },
+    modes: {
+      PaymentMode.cash: 'રોકડ',
+      PaymentMode.cheque: 'ચેક',
+      PaymentMode.online: 'ઓનલાઈન',
     },
     fontFamily: 'NotoSansGujarati',
   );
@@ -77,12 +85,13 @@ class ReceiptL10n {
     flat: 'निवास / शेड नं.',
     chq: 'चेक नं.',
     bank: 'बैंक',
-    cash: 'नक़द',
     pay: 'भुगतान',
+    txn: 'ट्रांज़ैक्शन नं.',
     received: 'की ओर से नीचे दिए विवरण अनुसार राशि प्राप्त हुई है:',
     words: 'अंकों में रुपये',
     total: 'कुल',
-    note: 'नोट : चेक द्वारा भुगतान की स्थिति में चेक क्लियर होने के बाद ही रसीद मान्य होगी.',
+    note:
+        'नोट : चेक द्वारा भुगतान की स्थिति में चेक क्लियर होने के बाद ही रसीद मान्य होगी.',
     sign: 'वसूलकर्ता के हस्ताक्षर',
     col: ['क्रम', 'विवरण', 'राशि (रु.)'],
     nums: ['1)', '2)', '3)', '4)'],
@@ -91,6 +100,11 @@ class ReceiptL10n {
       PaymentType.deposit: 'मेंटेनेंस हेतु डिपॉज़िट',
       PaymentType.transfer: 'ट्रांसफर फीस',
       PaymentType.other: 'अन्य',
+    },
+    modes: {
+      PaymentMode.cash: 'नक़द',
+      PaymentMode.cheque: 'चेक',
+      PaymentMode.online: 'ऑनलाइन',
     },
     fontFamily: 'NotoSansDevanagari',
   );
@@ -107,12 +121,13 @@ class ReceiptL10n {
     flat: 'Residence / Shed No.',
     chq: 'Cheque No.',
     bank: 'Bank',
-    cash: 'Cash',
     pay: 'Payment',
+    txn: 'Transaction No.',
     received: '— received with thanks the amount as per details below:',
     words: 'Rupees in words',
     total: 'Total',
-    note: 'P.S. : In case of payment by cheque, receipt is valid only after cheque realisation.',
+    note:
+        'P.S. : In case of payment by cheque, receipt is valid only after cheque realisation.',
     sign: 'Signature of Collector',
     col: ['No.', 'Particulars', 'Amount (Rs.)'],
     nums: ['1)', '2)', '3)', '4)'],
@@ -121,6 +136,11 @@ class ReceiptL10n {
       PaymentType.deposit: 'Deposit towards Maintenance',
       PaymentType.transfer: 'Transfer Fee',
       PaymentType.other: 'Other',
+    },
+    modes: {
+      PaymentMode.cash: 'Cash',
+      PaymentMode.cheque: 'Cheque',
+      PaymentMode.online: 'Online',
     },
     fontFamily: 'NotoSans',
   );

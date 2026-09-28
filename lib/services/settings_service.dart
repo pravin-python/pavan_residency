@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'amount_words.dart';
 
 /// All app settings, persisted on the device (SharedPreferences).
 class AppSettings {
@@ -47,7 +49,7 @@ class AppSettings {
   String buildSubject(int no, String name, num amount) => subjectTpl
       .replaceAll('{no}', '$no')
       .replaceAll('{name}', name)
-      .replaceAll('{amount}', '$amount');
+      .replaceAll('{amount}', formatIndian(amount));
 
   Map<String, dynamic> toJson() => {
         'host': host,
@@ -84,6 +86,10 @@ class SettingsService {
   static const _key = 'pavan_settings_v1';
   static AppSettings? _cache;
 
+  /// Bumped after every save, so open screens can refresh what they show
+  /// (e.g. the next receipt no. after a send from another tab).
+  static final changes = ValueNotifier<int>(0);
+
   static Future<AppSettings> load() async {
     if (_cache != null) return _cache!;
     final prefs = await SharedPreferences.getInstance();
@@ -98,6 +104,27 @@ class SettingsService {
     _cache = s;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, jsonEncode(s.toJson()));
+    changes.value++;
+  }
+
+  /// Reserves the next receipt no. (counter +1 immediately), so a Single
+  /// send and a running Bulk send can never get the same number.
+  static Future<int> takeReceiptNo() async {
+    final s = await load();
+    final n = s.nextReceiptNo; // read + bump with no await in between
+    s.nextReceiptNo = n + 1;
+    await save(s);
+    return n;
+  }
+
+  /// Gives back a number from [takeReceiptNo] whose send failed — only if
+  /// nothing was taken after it, so the sequence has no gaps / duplicates.
+  static Future<void> releaseReceiptNo(int n) async {
+    final s = await load();
+    if (s.nextReceiptNo == n + 1) {
+      s.nextReceiptNo = n;
+      await save(s);
+    }
   }
 
   /// Call after a successful send so receipt numbers keep increasing.

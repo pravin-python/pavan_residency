@@ -39,11 +39,36 @@ flutter run
 flutter build ios
 ```
 
-### Android release APK
+### Android release (APK / Play Store)
+
+Release builds are signed with **`android/pavan-release.jks`** using the values in
+**`android/key.properties`**. Both files are gitignored. **Back them up together**
+(Google Drive / pendrive). Every future update must be signed with this same key,
+otherwise installed phones will refuse the update. Without `key.properties` a
+release build stops with an error. It never falls back to the debug key.
+
 ```bash
+# Direct install / WhatsApp share:
 flutter build apk --release
-# output: build/app/outputs/flutter-apk/app-release.apk
+# output: build/app/outputs/apk/release/Pavan_Residency-release.apk
+
+# Google Play upload (Play needs an .aab):
+flutter build appbundle --release
+# output: build/app/outputs/bundle/release/Pavan_Residency-release.aab
 ```
+
+Before every new release, raise the build number in `pubspec.yaml`, e.g.
+`version: 1.1.0+2` → `1.1.1+3`.
+
+### Permissions
+
+- `INTERNET` + `ACCESS_NETWORK_STATE` are used to send email over SMTP.
+- **No storage permission.** Picking the CSV and the signature, and "Download Demo CSV",
+  all go through the Android system file dialog, which needs no permission.
+  `MANAGE_EXTERNAL_STORAGE` would get the app rejected by Play.
+- Backup is off (`allowBackup=false`), so the SMTP password is never copied to
+  Google Drive or to a new phone. After a reinstall or a phone change, fill in Settings again.
+- During Bulk send the screen stays on (wakelock). This needs no permission.
 
 ## Gmail SMTP
 
@@ -56,16 +81,26 @@ flutter build apk --release
 `assets/sample/pavan_bulk_sample.csv` dekho:
 
 ```csv
-name,email,block,house_no,amount,cheque_no,cheque_bank,language,type,date
-Ramesh Patel,ramesh@example.com,A,101,1500,123456,SBI,gujarati,maintenance,2026-07-18
-Suresh Shah,suresh@example.com,B,202,25000,,,hindi,deposit,
-John David,john@example.com,C,303,5000,998877,HDFC,english,transfer,
+receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,bank_name,received_date,email,language,remarks
+1,A,101,Ramesh Patel,1500,Cash,,Maintance,,,2026-09-25,ramesh@example.com,Gujarati,
+2,B,202,Suresh Shah,"25,000",Cheque,123456,Deposit,,SBI,2026-09-25,suresh@example.com,Hindi,
+3,C,303,John David,5000,Online,,Transfer fee,UTR458712369,HDFC,2026-09-26,john@example.com,English,
+,A,104,Mahesh Bhai,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges
 ```
 
+- Column order kuch bhi ho sakta hai; extra columns ignore hote hain. Excel / Google Sheets se **CSV** export karo.
 - `language`: gujarati / hindi / english (ya gu / hi / en)
-- `type`: maintenance / deposit / transfer / other (ya 1 / 2 / 3 / 4)
-- `cheque_no` blank = Cash receipt
-- `receipt_no`, `date` optional — blank par auto number + aaj ki date
+- Saari values **case-insensitive** hain (`Hindi` / `hindi` / `HINDI` sab chalega).
+- `block`: A / B / C (small letter bhi chalega, receipt par capital chhapega)
+- `type`: maintenance (`Maintance` bhi) / deposit / transfer fee / other (ya 1 / 2 / 3 / 4)
+- `remarks`: type **Other** ho to yeh text receipt ki "Other" line mein chhapta hai (max ~60 akshar).
+  `remarks` column na ho to type mein hi text likh do (jaise `Parking charges`) — woh Other + details ban jayega.
+- `mode`: cash / cheque / online (UPI / NEFT / IMPS bhi chalega).
+  Blank ho to: `cheque_no` hai → Cheque, `transaction_number` hai → Online, warna Cash.
+- `bank_name` (purana naam `cheque_bank` bhi chalega) — cheque ya online dono ke liye.
+- `amount` mein `7,500` / `Rs. 7500` jaisa format chalega.
+- `received_date`: `2026-09-25` ya `25/09/2026`. Receipt ki date = `date` column, woh na ho to `received_date`, woh bhi na ho to aaj ki date.
+- `receipt_no` optional — blank par auto number.
 
 ## Project structure
 

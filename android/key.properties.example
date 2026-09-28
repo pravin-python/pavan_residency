@@ -1,14 +1,17 @@
 # Release signing secrets — COPY this file to `key.properties` and fill in.
 # NEVER commit the real key.properties or the .jks keystore (already in .gitignore).
 #
-# Create the keystore first:
-#   keytool -genkey -v -keystore ~/pavan-release.jks -keyalg RSA \
-#     -keysize 2048 -validity 10000 -alias pavan
+# The real key for this app already exists: android/pavan-release.jks
+# (alias "pavan") + android/key.properties. Both are gitignored and must be
+# BACKED UP (Google Drive / pendrive). Every future update has to be signed
+# with that same key; a release build refuses to run without it.
 #
-# Then set the values below to match what you chose.
+# Only for a brand-new app id, create a keystore with:
+#   keytool -genkey -v -keystore pavan-release.jks -keyalg RSA \
+#     -keysize 2048 -validity 10000 -alias pavan
 
 storePassword=YOUR_KEYSTORE_PASSWORD
 keyPassword=YOUR_KEY_PASSWORD
 keyAlias=pavan
 # Absolute path to the .jks you created (or a path relative to android/app/):
-storeFile=/Users/macb03/pavan-release.jks
+storeFile=../pavan-release.jks

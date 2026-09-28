@@ -2,10 +2,8 @@ import '../models/receipt_data.dart';
 import 'amount_words.dart';
 import 'receipt_l10n.dart';
 
-String _esc(String s) => s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+String _esc(String s) =>
+    s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 /// Email-safe (table + inline styles) HTML receipt.
 /// If [inlineSignature] is true the signature is referenced as `cid:sig`
@@ -18,20 +16,30 @@ String buildReceiptHtml(ReceiptData d, {bool inlineSignature = false}) {
           ? "'Noto Sans',Arial,sans-serif"
           : "'Noto Sans Gujarati','Noto Sans',Arial,sans-serif";
 
-  final payline = d.chqNo.isNotEmpty
-      ? '${t.pay}: ${t.chq} <b style="color:#222">${_esc(d.chqNo)}</b> &nbsp; '
-          '${t.bank}: <b style="color:#222">${_esc(d.chqBank.isEmpty ? '-' : d.chqBank)}</b>'
-      : '${t.pay}: <b style="color:#222">${t.cash}</b>';
+  // Universal payment block: same layout for cash / cheque / online.
+  String cell(String label, String value, {bool b = false}) =>
+      '<td style="padding:4px 8px 4px 0;vertical-align:bottom;">$label : '
+      '<span style="border-bottom:1px dotted #b3222a;color:#222;padding:0 8px;'
+      '${b ? 'font-weight:700;' : ''}overflow-wrap:anywhere;word-wrap:break-word;">'
+      '${_esc(value.isEmpty ? '-' : value)}</span></td>';
+  final payment = '''
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;font-size:13.5px;color:#b3222a;">
+    <tr>${cell(t.pay, t.modes[d.mode]!, b: true)}${cell(t.bank, d.chqBank)}</tr>
+    <tr>${cell(t.chq, d.chqNo)}${cell(t.txn, d.txnNo)}</tr>
+  </table>''';
 
   final rows = StringBuffer();
   const keys = PaymentType.values;
   for (var i = 0; i < keys.length; i++) {
     final k = keys[i];
     final isIt = k == d.type;
+    final label = isIt && k == PaymentType.other && d.remark.isNotEmpty
+        ? '${t.rows[k]} – ${_esc(d.remark)}'
+        : t.rows[k];
     rows.write('''
     <tr>
       <td style="border:1px solid #b3222a;padding:6px 8px;text-align:center;width:36px;">${t.nums[i]}</td>
-      <td style="border:1px solid #b3222a;padding:6px 8px;">${t.rows[k]}</td>
+      <td style="border:1px solid #b3222a;padding:6px 8px;">$label</td>
       <td style="border:1px solid #b3222a;padding:6px 8px;text-align:right;width:110px;color:#222;font-weight:${isIt ? '700' : '400'};">${isIt ? formatIndian(d.amount) : ''}</td>
     </tr>''');
   }
@@ -62,7 +70,7 @@ String buildReceiptHtml(ReceiptData d, {bool inlineSignature = false}) {
     <span style="border-bottom:1px dotted #b3222a;color:#222;padding:0 8px;">${_esc(d.block.isEmpty ? '-' : d.block)}</span>
     &nbsp; ${t.flat}
     <span style="border-bottom:1px dotted #b3222a;color:#222;padding:0 8px;">${_esc(d.house.isEmpty ? '-' : d.house)}</span></div>
-  <div style="margin-top:8px;font-size:13.5px;">$payline</div>
+$payment
   <div style="margin-top:8px;font-size:13px;">${t.received}</div>
   <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:9px;font-size:13px;color:#b3222a;">
     <tr>
