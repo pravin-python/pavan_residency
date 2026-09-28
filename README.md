@@ -1,135 +1,415 @@
 # Pavan Residency — Receipt Mailer (Flutter)
 
-Android + iOS app for Pavan Residency (Bhadaj) Co-op Housing Society.
-Creates maintenance receipts in **Gujarati / Hindi / English** and emails them
-via **your own SMTP** (settings stored on the phone) — single entry or bulk CSV.
+Android app for **Pavan Residency (Bhadaj) Co-op Housing Society**.
+It creates maintenance receipts in **Gujarati / Hindi / English** and emails them
+through **your own SMTP** account (Gmail etc.; the settings are stored on the phone).
+You can send one receipt at a time or many at once from a CSV file.
+
+| | |
+|---|---|
+| **Owner** | [pravin-python](https://github.com/pravin-python) |
+| **Repository** | https://github.com/pravin-python/pavan_residency |
+| **App id** | `com.pavanresidency.pavan_residency` |
+| **Current version** | `1.1.0+2` (see `version:` in `pubspec.yaml`) |
+| **Android** | 7.0+ (minSdk 24), target SDK 36 |
+| **Built with** | Flutter 3.47 (stable), JDK 17, Android SDK 36 |
+
+---
+
+## Contents
+
+1. [Features](#features)
+2. [A–Z: new PC setup (one time)](#az-new-pc-setup-one-time)
+3. [Project setup](#project-setup)
+4. [Running the app on a phone](#running-the-app-on-a-phone)
+5. [Building the release APK / AAB](#building-the-release-apk--aab)
+6. [Release signing key (important)](#release-signing-key-important)
+7. [Installing on a phone / Play Store](#installing-on-a-phone--play-store)
+8. [Gmail SMTP setup](#gmail-smtp-setup)
+9. [CSV format (Bulk)](#csv-format-bulk)
+10. [Receipt number rules](#receipt-number-rules)
+11. [Permissions](#permissions)
+12. [Project structure](#project-structure)
+13. [Tests](#tests)
+14. [Troubleshooting](#troubleshooting)
+
+---
 
 ## Features
 
-- **Single**: form bharo → PDF preview → email send.
-- **Bulk CSV**: CSV upload karo → har row ka receipt alag language/type ke saath → Send All (per-row status).
-- **Settings** (device par save, SharedPreferences):
-  - SMTP host / port / SSL / username / password, sender name.
-  - Signature image (jpg / jpeg / png) — email mein inline + PDF mein bhi.
-  - Subject template, PDF attach on/off, auto-increment receipt number.
-- Receipt design society ki printed receipt book jaisa (red/pink), amount **words mein** teeno bhasha mein (Indian system — lakh/crore).
-- Email body mein HTML receipt + proper vector **PDF attachment** (A5 landscape, embedded Noto fonts).
+- **Single**: fill the form (Block A/B/C, Payment Mode, Type, Other details), see a PDF preview, and send the email.
+- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All** shows a status for every row, and you can press **Stop** at any time.
+  - Receipts that were already sent (for example after an interrupted run) are skipped. Long-press a row to send it again.
+  - If the password is wrong or Gmail's daily limit is reached, Bulk stops by itself.
+- **Universal receipt**: the payment section is the same for Cash, Cheque and Online. It always shows Mode, Bank, Cheque No. and Transaction No. (`-` if blank).
+- **Settings** (saved on the device): SMTP host / port / SSL / username / app password, sender name, subject template, PDF attachment on/off, next receipt no., and a signature image (jpg/png, shrunk automatically).
+- The receipt looks like the printed receipt book (red/pink). The amount is also written **in words** in all three languages (Indian lakh/crore system).
+- The email body contains an HTML receipt, and a vector **PDF** is attached (A5 landscape with embedded Noto fonts).
 
-## Setup (first time)
+---
 
-```bash
-# 1. Flutter SDK install hona chahiye (flutter.dev/docs/get-started/install)
+## A–Z: new PC setup (one time)
+
+> On this PC everything is already installed at the paths below. Follow these steps only for a
+> **new PC**. The commands are for **Windows PowerShell**. Put every tool on the **same drive** as
+> the project (here `E:`), see [Troubleshooting](#troubleshooting).
+
+### 1. Git
+
+Download and install it from https://git-scm.com/download/win.
+
+### 2. Flutter SDK
+
+```powershell
+New-Item -ItemType Directory -Force E:\dev
+git clone --depth 1 -b stable https://github.com/flutter/flutter.git E:\dev\flutter
+```
+
+### 3. JDK 17 (needed by Gradle; Java 21+/25 does not work)
+
+Download the **Temurin 17 (Windows x64, .zip)** from https://adoptium.net/temurin/releases/?version=17
+and extract it to `E:\dev\jdk\`. The result looks like `E:\dev\jdk\jdk-17.x.x+x\`.
+
+### 4. Android SDK (command-line tools, no Android Studio needed)
+
+1. Download the **Command line tools only (Windows)** zip from https://developer.android.com/studio#command-tools.
+2. Extract it so the result is `E:\dev\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat`.
+   The zip's `cmdline-tools` folder must be renamed to `latest`.
+3. Install the packages and accept the licenses. Press `y` at every prompt:
+
+```powershell
+$env:JAVA_HOME = (Get-ChildItem E:\dev\jdk -Directory | Select-Object -First 1).FullName
+$sdk = "E:\dev\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat"
+& $sdk --sdk_root=E:\dev\Android\Sdk --licenses
+& $sdk --sdk_root=E:\dev\Android\Sdk "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+```
+
+### 5. Environment variables (user level, set once)
+
+```powershell
+[Environment]::SetEnvironmentVariable('ANDROID_HOME', 'E:\dev\Android\Sdk', 'User')
+# Pub cache on the SAME drive as the project (otherwise the build fails, see Troubleshooting)
+[Environment]::SetEnvironmentVariable('PUB_CACHE', 'E:\dev\pub-cache', 'User')
+$p = [Environment]::GetEnvironmentVariable('Path', 'User')
+[Environment]::SetEnvironmentVariable('Path', "$p;E:\dev\flutter\bin;E:\dev\Android\Sdk\platform-tools", 'User')
+```
+
+**Close the terminal and open a new one** so the new PATH is loaded.
+
+### 6. Flutter configuration
+
+```powershell
+$jdk = (Get-ChildItem E:\dev\jdk -Directory | Select-Object -First 1).FullName
+flutter config --jdk-dir "$jdk" --android-sdk E:\dev\Android\Sdk --no-analytics
+flutter doctor --android-licenses     # answer y to everything
+flutter doctor                        # Flutter + Android toolchain must show [√]
+```
+
+### 7. Windows Developer Mode (required for plugins)
+
+```powershell
+start ms-settings:developers
+```
+
+Turn **Developer Mode** ON in the window that opens.
+
+---
+
+## Project setup
+
+```powershell
+# 1. Get the code
+cd E:\pravin\applications
+git clone https://github.com/pravin-python/pavan_residency.git
 cd pavan_residency
 
-# 2. Platform folders generate karo (android/, ios/)
-flutter create . --org com.pavanresidency --project-name pavan_residency
+# 2. Release signing key: copy these two files from your backup into the android\ folder
+#    android\key.properties
+#    android\pavan-release.jks
+#    (see "Release signing key" below; they are NOT in git)
 
-# 3. Dependencies
+# 3. Libraries
 flutter pub get
 
-# 4. Run (device/emulator connected)
-flutter run
+# 4. Check that everything is fine
+flutter analyze        # "No issues found!"
+flutter test           # "All tests passed!"
 ```
 
-> `flutter create .` sirf missing platform folders banata hai — `lib/`, `pubspec.yaml`, `assets/` ko touch nahi karta.
+> The `android/` and `ios/` folders are already in the repo. You do **not** need to run `flutter create`.
 
-### iOS note
-`ios/Runner/Info.plist` — file picker ke liye kuch nahi chahiye (file_picker document picker use karta hai). Build ke liye Mac + Xcode zaroori hai:
-```bash
-flutter build ios
+---
+
+## Running the app on a phone
+
+1. On the phone: **Settings → About phone → tap "Build number" 7 times**, which turns Developer options on.
+2. **Settings → Developer options → USB debugging** ON.
+3. Connect the phone with a USB cable and tap **Allow** on the prompt that appears on the phone.
+4. Then, in the project folder:
+
+```powershell
+adb devices            # the phone must show as "device" (not "unauthorized")
+flutter run            # debug mode, hot reload with 'r'
+flutter run --release  # or check the real release speed
 ```
 
-### Android release (APK / Play Store)
+---
 
-Release builds are signed with **`android/pavan-release.jks`** using the values in
-**`android/key.properties`**. Both files are gitignored. **Back them up together**
-(Google Drive / pendrive). Every future update must be signed with this same key,
-otherwise installed phones will refuse the update. Without `key.properties` a
-release build stops with an error. It never falls back to the debug key.
+## Building the release APK / AAB
 
-```bash
-# Direct install / WhatsApp share:
+Follow these steps, in order, every time you release a new version.
+
+### Step 1: Raise the version (every release)
+
+In `pubspec.yaml`:
+
+```yaml
+version: 1.1.0+2      # before
+version: 1.1.1+3      # after: raise the name (1.1.1) and ALWAYS raise the number after + (3)
+```
+
+> Play Store and Android only accept an update when the number after `+` (versionCode) goes up.
+
+### Step 2: Clean, test and build
+
+```powershell
+cd E:\pravin\applications\pavan_residency
+
+flutter clean
+flutter pub get
+flutter analyze
+flutter test
+
+# APK: to install directly on a phone or share on WhatsApp
 flutter build apk --release
-# output: build/app/outputs/apk/release/Pavan_Residency-release.apk
 
-# Google Play upload (Play needs an .aab):
+# AAB: for Google Play Store upload
 flutter build appbundle --release
-# output: build/app/outputs/bundle/release/Pavan_Residency-release.aab
 ```
 
-Before every new release, raise the build number in `pubspec.yaml`, e.g.
-`version: 1.1.0+2` → `1.1.1+3`.
+### Step 3: Output files
 
-### Permissions
+| File | Path |
+|---|---|
+| **APK** | `build\app\outputs\apk\release\Pavan_Residency-release.apk` |
+| APK (same file, second copy) | `build\app\outputs\flutter-apk\app-release.apk` |
+| **AAB** | `build\app\outputs\bundle\release\Pavan_Residency-release.aab` |
 
-- `INTERNET` + `ACCESS_NETWORK_STATE` are used to send email over SMTP.
-- **No storage permission.** Picking the CSV and the signature, and "Download Demo CSV",
-  all go through the Android system file dialog, which needs no permission.
-  `MANAGE_EXTERNAL_STORAGE` would get the app rejected by Play.
-- Backup is off (`allowBackup=false`), so the SMTP password is never copied to
-  Google Drive or to a new phone. After a reinstall or a phone change, fill in Settings again.
-- During Bulk send the screen stays on (wakelock). This needs no permission.
+### Step 4 (optional): Check the signature
 
-## Gmail SMTP
+Make sure the release key was used and not the debug key:
 
-1. Google Account → Security → **2-Step Verification** ON karo.
-2. **App Passwords** → naya password banao (16 letters).
-3. App Settings mein: host `smtp.gmail.com`, port `465`, SSL ON, username = Gmail address, password = app password.
+```powershell
+& "E:\dev\Android\Sdk\build-tools\35.0.0\apksigner.bat" verify --print-certs build\app\outputs\apk\release\Pavan_Residency-release.apk
+# Must show: Signer #1 certificate DN: CN=Pavan Residency, O=Pavan Residency Co-op Hsg Soc Ltd, ...
+```
 
-## CSV format
+> If `android\key.properties` is missing, a release build **stops with an error**
+> (`android/key.properties is missing ...`). It never signs with the debug key silently.
+> Debug builds (`flutter run`) still work without the key.
 
-`assets/sample/pavan_bulk_sample.csv` dekho:
+---
+
+## Release signing key (important)
+
+- Every release is signed with **`android\pavan-release.jks`** (alias `pavan`). Its password is in
+  **`android\key.properties`**.
+- Both files are **gitignored** and are never committed or pushed to GitHub.
+- ⚠️ **Keep a backup of both files together** (Google Drive / pendrive / a second PC).
+  **If the key is lost, the app can never be updated.** Phones reject an update signed with a
+  different key, so everyone would have to uninstall and reinstall, and their settings would be lost.
+- To build on another PC, copy the same two files into that PC's `android\` folder.
+- The format is in `android\key.properties.example`:
+
+```properties
+storePassword=...
+keyPassword=...
+keyAlias=pavan
+storeFile=../pavan-release.jks
+```
+
+Create a new key **only for a brand-new app id** (never for this app):
+
+```powershell
+& "E:\dev\jdk\<jdk-17-folder>\bin\keytool.exe" -genkeypair -v -keystore android\pavan-release.jks -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 10000 -alias pavan
+```
+
+---
+
+## Installing on a phone / Play Store
+
+**Direct install (APK):**
+
+```powershell
+adb install -r build\app\outputs\apk\release\Pavan_Residency-release.apk
+```
+
+Or copy the APK to the phone or send it on WhatsApp, open it, and allow "Install unknown apps".
+
+> **If an old version signed with a different key is installed** (for example the earliest
+> debug-key APK), Android shows "App not installed". Uninstall it first. **Before
+> uninstalling, note down Settings → Next Receipt No.** Uninstalling wipes the settings, and
+> backup is off.
+
+**Google Play:** in Play Console → your app → Production (or Internal testing) → Create
+release, upload the `.aab` and turn on **Play App Signing**. For every update, raise the
+version (Step 1) and upload a new `.aab`.
+
+**After the first install:** fill in all the SMTP details in Settings and press **Save Settings**.
+On the first save the app asks you to confirm **Next Receipt No.** It should be the last
+number of the old phone / receipt book + 1.
+
+---
+
+## Gmail SMTP setup
+
+1. Google Account → Security → turn **2-Step Verification** ON.
+2. Open https://myaccount.google.com/apppasswords → create a new **App Password** (16 letters).
+3. In the app's Settings:
+   - Host `smtp.gmail.com`, port `465`, **SSL ON** (or port `587` with SSL OFF)
+   - Username = Gmail address, Password = **App Password** (spaces are removed automatically)
+4. Save Settings, then send one receipt from the Single tab to test.
+
+> Gmail's normal password does not work, only the App Password. Gmail has a daily
+> sending limit. When it is reached, Bulk stops by itself. Send the rest the next day.
+
+---
+
+## CSV format (Bulk)
+
+A sample is in `assets/sample/pavan_bulk_sample.csv`. You can also get it with the
+**"Download Demo CSV"** button on the Bulk tab.
 
 ```csv
 receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,bank_name,received_date,email,language,remarks
-1,A,101,Ramesh Patel,1500,Cash,,Maintance,,,2026-09-25,ramesh@example.com,Gujarati,
-2,B,202,Suresh Shah,"25,000",Cheque,123456,Deposit,,SBI,2026-09-25,suresh@example.com,Hindi,
-3,C,303,John David,5000,Online,,Transfer fee,UTR458712369,HDFC,2026-09-26,john@example.com,English,
+,A,101,Ramesh Patel,1500,Cash,,Maintance,,,2026-09-25,ramesh@example.com,Gujarati,
+,B,202,Suresh Shah,"25,000",Cheque,123456,Deposit,,SBI,2026-09-25,suresh@example.com,Hindi,
+,C,303,John David,5000,Online,,Transfer fee,UTR458712369,HDFC,2026-09-26,john@example.com,English,
 ,A,104,Mahesh Bhai,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges
 ```
 
-- Column order kuch bhi ho sakta hai; extra columns ignore hote hain. Excel / Google Sheets se **CSV** export karo.
-- `language`: gujarati / hindi / english (ya gu / hi / en)
-- Saari values **case-insensitive** hain (`Hindi` / `hindi` / `HINDI` sab chalega).
-- `block`: A / B / C (small letter bhi chalega, receipt par capital chhapega)
-- `type`: maintenance (`Maintance` bhi) / deposit / transfer fee / other (ya 1 / 2 / 3 / 4)
-- `remarks`: type **Other** ho to yeh text receipt ki "Other" line mein chhapta hai (max ~60 akshar).
-  `remarks` column na ho to type mein hi text likh do (jaise `Parking charges`) — woh Other + details ban jayega.
-- `mode`: cash / cheque / online (UPI / NEFT / IMPS bhi chalega).
-  Blank ho to: `cheque_no` hai → Cheque, `transaction_number` hai → Online, warna Cash.
-- `bank_name` (purana naam `cheque_bank` bhi chalega) — cheque ya online dono ke liye.
-- `amount` mein `7,500` / `Rs. 7500` jaisa format chalega.
-- `received_date`: `2026-09-25` ya `25/09/2026`. Receipt ki date = `date` column, woh na ho to `received_date`, woh bhi na ho to aaj ki date.
-- `receipt_no` optional — blank par auto number.
+**General**
+- Export from Excel or Google Sheets as **CSV**. UTF-8, UTF-16, `,` / `;` / tab separated, and an Excel `sep=;` line all work.
+- Column order does not matter and extra columns are ignored. A title line above the header also works.
+- All values are **case-insensitive** (`Hindi` / `hindi` / `HINDI`).
+
+**Columns**
+
+| Column | Required? | Values / notes |
+|---|---|---|
+| `name` | ✔ | Resident's name |
+| `email` | ✔ | One or more: `a@x.com, b@y.com`. Separate `Email 1` / `Email 2` columns also work. |
+| `amount` | ✔ | `7500`, `7,500`, `Rs. 7,500/-`, `7500,00`. Whole rupees only, above 0 and below 100 crore. |
+| `block` | | A / B / C (printed in capitals) |
+| `house_no` | | Residence / shed no. |
+| `type` | | `Maintenance` (also typos like `Maintance`), `Deposit`, `Transfer fee`, `Other`, or 1/2/3/4. **Other text** such as `Parking charges` or `Other - Parking` becomes Other + details. Blank = Maintenance. |
+| `remarks` | | Details for type **Other** (printed on the Other row of the receipt) |
+| `mode` | | `Cash` / `Cheque` / `Online`. UPI, NEFT, IMPS, GPay, PhonePe, Paytm, ઓનલાઈન and ऑनलाइन also mean Online. **Blank**: Cheque if there is a `cheque_no`, Online if there is a `transaction_number`, otherwise Cash. |
+| `cheque_no` | | Cheque number (a leading 0 is kept) |
+| `transaction_number` | | UTR / reference no. (`utr`, `ref_no` also work) |
+| `bank_name` | | For cheque or online (the old name `cheque_bank` also works) |
+| `received_date` | | `2026-09-25`, `25/09/2026`, `25-Sep-2026`, `Sep 25, 2026`, an Excel date number. Excel month-first dates (`9/25/2026`) are detected for the whole file. |
+| `date` | | Receipt date. If blank, `received_date` is used; if that is blank too, today's date. |
+| `language` | | `Gujarati` / `Hindi` / `English` (or gu / hi / en). Blank = Gujarati. |
+| `receipt_no` | | **Leave it blank** for an auto number (recommended). If filled, it must be a positive whole number. |
+
+A row with a problem shows **"✗ fix"** in the list, and a red line explains the reason (email, amount, date, receipt_no duplicate ...).
+
+---
+
+## Receipt number rules
+
+- **Next Receipt No.** is in Settings. It goes up by 1 after every successful send (794, 795, 796 ...).
+- Single and Bulk **reserve** the number when a send starts, so the same number can never be used twice, even when both run at the same time.
+- If a mail is **certainly not sent** (wrong password, no internet, server refused), its number is released and the next receipt gets it (no gap).
+- If a mail **may have been sent** (the connection dropped mid-send), the number stays used. The app says "pata nahi mail gaya ya nahi"; check the inbox / Sent folder. A retry sends the same number again.
+- The app warns you if you type or use a number that may already have been used (below the counter).
+- Reinstall / new phone: backup is off, so the counter goes back to its default. **Confirm it** on the first Save.
+
+---
+
+## Permissions
+
+| Permission | Why |
+|---|---|
+| `INTERNET` | To send email over SMTP |
+| `ACCESS_NETWORK_STATE` | To check the network state |
+
+- **No storage permission, on purpose.** Picking the CSV and the signature and "Download Demo CSV"
+  all go through Android's system file dialog (Storage Access Framework), which needs no permission.
+  `MANAGE_EXTERNAL_STORAGE` / storage permissions would get the app rejected by Play Store.
+- **Backup is off** (`allowBackup=false` + `data_extraction_rules.xml`), so the SMTP password never
+  goes to Google Drive backup or a phone-to-phone transfer.
+- During Bulk send the screen **stays on** (wakelock_plus). This needs no permission.
+
+---
 
 ## Project structure
 
 ```
 lib/
   main.dart                    # app + theme
-  models/receipt_data.dart     # receipt model, CSV value parsing
+  models/receipt_data.dart     # receipt model; CSV value parsing (mode/type/amount/email)
   services/
-    amount_words.dart          # amount → words (gu/hi/en, lakh-crore)
+    amount_words.dart          # amount → words (gu/hi/en, lakh-crore) + Indian grouping
     receipt_l10n.dart          # receipt labels in 3 languages
-    receipt_html.dart          # email-safe HTML receipt
-    pdf_service.dart           # vector PDF (A5) with Noto fonts
-    email_service.dart         # SMTP send (mailer) + inline signature (cid)
-    csv_service.dart           # CSV parse + column mapping
-    settings_service.dart      # SharedPreferences persistence
+    receipt_html.dart          # email-safe HTML receipt (universal payment block)
+    pdf_service.dart           # vector PDF (A5), Noto fonts, footer pinned
+    email_service.dart         # SMTP send (mailer), friendly errors, sent / not-sent
+    csv_service.dart           # CSV decode, header/column mapping, dates
+    settings_service.dart      # SharedPreferences settings + receipt counter
+    sent_log.dart              # which receipts were already mailed (no re-send)
+    signature_image.dart       # signature resize / validation
   screens/
-    home_screen.dart           # bottom navigation
+    home_screen.dart           # bottom navigation (Single / Bulk CSV / Settings)
     single_screen.dart         # single receipt form
-    bulk_screen.dart           # CSV upload + send all
+    bulk_screen.dart           # CSV upload, Send All, Stop
     settings_screen.dart       # SMTP + signature + receipt settings
+  utils/file_saver*.dart       # "Save as" dialog (demo CSV)
 assets/
   fonts/                       # Noto Sans (Gujarati, Devanagari, Latin)
-  sample/pavan_bulk_sample.csv
-test/
-  amount_words_test.dart       # run: flutter test
+  sample/pavan_bulk_sample.csv # demo CSV
+  icon/                        # launcher icon (dart run flutter_launcher_icons)
+android/
+  app/build.gradle.kts         # release signing (+ guard), APK name Pavan_Residency-*
+  app/src/main/AndroidManifest.xml
+  app/src/main/res/xml/data_extraction_rules.xml
+  key.properties.example       # signing file format (the real key.properties is NOT in git)
+test/                          # flutter test
 ```
+
+---
 
 ## Tests
 
-```bash
-flutter test
+```powershell
+flutter test                          # all tests
+flutter test test\csv_service_test.dart   # a single file
+flutter analyze                       # lint / static checks
 ```
+
+The tests cover CSV parsing (formats, dates, amounts, modes/types), receipt numbering,
+the sent log, the signature, error messages, and the small-phone / large-font layout.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `'flutter' is not recognized` | Open a new terminal after setting PATH, or check PATH in step 5. |
+| Build: `Execution failed for task ':printing:packageDebugResources' ... Error: ->` | The pub cache is on a different drive (C:) from the project (E:). Set `PUB_CACHE=E:\dev\pub-cache`, then run `flutter clean` and `flutter pub get`. |
+| `Building with plugins requires symlink support` | Turn on Windows **Developer Mode** (`start ms-settings:developers`). |
+| Gradle / Java version error | Gradle needs JDK 17: `flutter config --jdk-dir "E:\dev\jdk\jdk-17..."` |
+| `android/key.properties is missing - refusing to build a release ...` | Copy `key.properties` + `pavan-release.jks` from your backup into `android\`. |
+| Phone says "App not installed" / `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app was signed with a different key. Note down Next Receipt No., uninstall, then install. |
+| `adb devices` shows `unauthorized` | Tap "Allow USB debugging" on the phone, or reconnect the cable. |
+| Email: "Login fail" | Gmail App Password (not the normal password), 2-Step Verification ON. |
+| Email: "SSL error" | Port 465 → SSL ON, port 587 → SSL OFF. |
+| Bulk: "Mail server ne rok diya (daily limit)" | Gmail's daily limit is reached. Try again after a few hours or the next day. Already-sent rows are skipped. |
+| First build is very slow | Gradle / NDK download the first time (10–15 min). Later builds take 1–3 min. |
+
+---
+
+© Pavan Residency (Bhadaj) Co-op Housing Society — maintained by
+[pravin-python](https://github.com/pravin-python).
