@@ -54,7 +54,7 @@ void main() {
     await tester.pumpAndSettle();
     // First save on this install asks to confirm the counter.
     expect(find.textContaining('#797'), findsOneWidget);
-    await tester.tap(find.text('Yes, correct'));
+    await tester.tap(find.text('Yes, it is correct'));
     await tester.pumpAndSettle();
 
     final s = await tester.runAsync(SettingsService.load);

@@ -3,7 +3,7 @@
 #
 # The real key for this app already exists: android/pavan-release.jks
 # (alias "pavan") + android/key.properties. Both are gitignored and must be
-# BACKED UP (Google Drive / pendrive). Every future update has to be signed
+# BACKED UP (Google Drive / USB drive). Every future update has to be signed
 # with that same key; a release build refuses to run without it.
 #
 # Only for a brand-new app id, create a keystore with:

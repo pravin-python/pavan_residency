@@ -28,6 +28,19 @@ class BulkScreen extends StatefulWidget {
   State<BulkScreen> createState() => _BulkScreenState();
 }
 
+const _typeLabel = {
+  PaymentType.maintenance: 'Maintenance',
+  PaymentType.deposit: 'Deposit',
+  PaymentType.transfer: 'Transfer Fee',
+  PaymentType.other: 'Other',
+};
+const _modeLabel = {
+  PaymentMode.cash: 'Cash',
+  PaymentMode.cheque: 'Cheque',
+  PaymentMode.online: 'Online',
+};
+const _langLabel = {'gu': 'Gujarati', 'hi': 'Hindi', 'en': 'English'};
+
 class _BulkScreenState extends State<BulkScreen> {
   List<ReceiptData> _rows = [];
   bool _sending = false;
@@ -79,7 +92,7 @@ class _BulkScreenState extends State<BulkScreen> {
             err: true);
       } else if (before > 0) {
         _snack('$before ${before == 1 ? 'row was' : 'rows were'} already sent '
-            'earlier and will be skipped. Long-press a row to send it again.');
+            'and will be skipped. Long-press a row to send it again.');
       }
     } catch (e) {
       _snack('Could not read the CSV file: $e', err: true);
@@ -137,8 +150,10 @@ class _BulkScreenState extends State<BulkScreen> {
   Future<void> _previewRow(ReceiptData r) async {
     final s = await SettingsService.load();
     // Preview only: build a copy so the row's receipt no. is NOT locked in.
-    // The real number is assigned at send time so bulk stays 1++ sequential.
-    final d = r.copy()..recNo = r.recNo == 0 ? s.nextReceiptNo : r.recNo;
+    // The real number is assigned at send time so bulk numbers stay
+    // sequential.
+    final d = r.copy()
+      ..recNo = r.recNo == 0 ? SettingsService.peekReceiptNo(s) : r.recNo;
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => Scaffold(
@@ -169,7 +184,7 @@ class _BulkScreenState extends State<BulkScreen> {
   Future<void> _sendAll() async {
     final s = await SettingsService.load();
     if (!s.isConfigured) {
-      _snack('Fill in the SMTP details in Settings first.', err: true);
+      _snack('Fill in the SMTP details on the Settings tab first.', err: true);
       return;
     }
     final todo = _rows
@@ -184,6 +199,7 @@ class _BulkScreenState extends State<BulkScreen> {
         .where((r) =>
             r.recNo > 0 &&
             r.recNo < s.nextReceiptNo &&
+            !s.spareNos.contains(r.recNo) &&
             !_ownsNumber.contains(r))
         .map((r) => r.recNo)
         .toList();
@@ -212,11 +228,31 @@ class _BulkScreenState extends State<BulkScreen> {
     final explicit = todo.where((r) => r.recNo > 0).map((r) => r.recNo).toSet();
     SettingsService.reserve(explicit);
 
-    Future<void> sendOne(ReceiptData r, SmtpSession session) async {
+    final sessions = <SmtpSession>[];
+    SmtpSession newSession() {
+      final x = SmtpSession(s);
+      sessions.add(x);
+      return x;
+    }
+
+    final first = newSession();
+    var next = 0;
+    final back = <ReceiptData>[]; // rows handed back by a refused connection
+    var loginOk = false;
+    bool keepGoing() =>
+        !_stop &&
+        abortReason == null &&
+        (back.isNotEmpty || next < todo.length);
+    ReceiptData take() => back.isNotEmpty ? back.removeAt(0) : todo[next++];
+
+    /// Sends one row. Returns false when [session] should stop taking rows
+    /// (an extra parallel connection the server refused — the row was
+    /// handed back to the others).
+    Future<bool> sendOne(ReceiptData r, SmtpSession session) async {
       if (mounted) setState(() => r.status = SendStatus.sending);
-      // Auto receipt no.: a blank row reserves the next number from the
-      // live counter → 794, 795, 796 … (1++), never shared with a Single
-      // send made meanwhile.
+      // Auto receipt no.: a blank row takes the next number (a spare one
+      // first, then the live counter) → 794, 795, 796 … in sequence, never
+      // shared with another connection or a Single send made meanwhile.
       final autoNo = r.recNo == 0;
       try {
         if (autoNo) r.recNo = await SettingsService.takeReceiptNo();
@@ -225,19 +261,30 @@ class _BulkScreenState extends State<BulkScreen> {
         r.error = '';
         _ownsNumber.remove(r);
         sent++;
+        loginOk = true;
       } on NotSentException catch (e) {
+        // Certainly not delivered: give the auto number back (it becomes a
+        // spare if a later number was already taken, and is issued next).
+        if (autoNo && r.recNo > 0 && !_ownsNumber.contains(r)) {
+          await SettingsService.releaseReceiptNo(r.recNo);
+          r.recNo = 0;
+        }
+        // An extra parallel connection refused while the others work (the
+        // server allows fewer connections): hand the row back and let this
+        // connection stop, instead of stopping the whole run.
+        if (session != first &&
+            session.delivered == 0 &&
+            sent > 0 &&
+            EmailService.isConfigError(e)) {
+          r
+            ..status = SendStatus.ready
+            ..error = '';
+          back.add(r);
+          if (mounted) setState(() {});
+          return false;
+        }
         r.status = SendStatus.error;
         r.error = EmailService.friendlyError(e);
-        // Certainly not delivered: give the auto number back so a retry
-        // takes a fresh one. If a later number was already taken (parallel
-        // sends), the row keeps this one instead — no gap, no duplicate.
-        if (autoNo && r.recNo > 0 && !_ownsNumber.contains(r)) {
-          if (await SettingsService.releaseReceiptNo(r.recNo)) {
-            r.recNo = 0;
-          } else {
-            _ownsNumber.add(r);
-          }
-        }
         // Wrong password / host / no internet / daily limit: every next row
         // would fail the same way (and repeated bad logins can lock Gmail).
         if (EmailService.isConfigError(e)) abortReason ??= r.error;
@@ -246,28 +293,18 @@ class _BulkScreenState extends State<BulkScreen> {
         // given to another resident. A retry re-sends this same receipt.
         r.status = SendStatus.error;
         r.error = 'Not sure whether the email was delivered '
-            '(receipt #${r.recNo}): ${EmailService.friendlyError(e)} '
+            '(receipt #${r.recNo}). ${EmailService.friendlyError(e)} '
             'Check the Sent folder before sending again.';
         _ownsNumber.add(r);
         await SettingsService.bumpReceiptNo(r.recNo).catchError((_) {});
       }
       if (mounted) setState(() => _done++);
+      return true;
     }
-
-    final sessions = <SmtpSession>[];
-    SmtpSession newSession() {
-      final x = SmtpSession(s);
-      sessions.add(x);
-      return x;
-    }
-
-    var next = 0;
-    bool keepGoing() => !_stop && abortReason == null && next < todo.length;
 
     Future<void> worker(SmtpSession session) async {
       while (keepGoing()) {
-        final r = todo[next++];
-        await sendOne(r, session);
+        if (!await sendOne(take(), session)) return;
         // Small gap per connection so the SMTP server doesn't throttle us.
         if (keepGoing()) {
           await Future.delayed(const Duration(milliseconds: 250));
@@ -276,16 +313,21 @@ class _BulkScreenState extends State<BulkScreen> {
     }
 
     try {
-      // The first email goes alone: it checks the login once, so a wrong
-      // password fails one login instead of [BulkScreen.parallel] at once.
-      final first = newSession();
-      await sendOne(todo[next++], first);
+      // Rows go one at a time until one email is delivered: that checks the
+      // login once, so a wrong password fails one login instead of
+      // [BulkScreen.parallel] at once.
+      while (!loginOk && keepGoing()) {
+        await sendOne(take(), first);
+      }
       if (keepGoing()) {
-        final workers = min(BulkScreen.parallel, todo.length - next);
+        final extra =
+            min(BulkScreen.parallel, todo.length - next + back.length) - 1;
         await Future.wait([
           worker(first),
-          for (var i = 1; i < workers; i++) worker(newSession()),
+          for (var i = 0; i < extra; i++) worker(newSession()),
         ]);
+        // Rows handed back after the first connection had finished.
+        await worker(first);
       }
     } finally {
       await Future.wait(sessions.map((x) => x.close()));
@@ -299,8 +341,7 @@ class _BulkScreenState extends State<BulkScreen> {
     final left = todo.where((r) => r.status == SendStatus.ready).length;
     final failed = todo.where((r) => r.status == SendStatus.error).length;
     if (abortReason != null) {
-      _snack('Bulk send stopped: $abortReason Check Settings, then try again.',
-          err: true);
+      _snack('Bulk send stopped. $abortReason', err: true);
     } else {
       _snack(
           'Bulk send finished: $sent sent, $failed failed'
@@ -326,7 +367,7 @@ class _BulkScreenState extends State<BulkScreen> {
     switch (r.status) {
       case SendStatus.sent:
         return chip(
-            r.sentBefore ? '✓ earlier' : '✓ sent', const Color(0xFFD9F2DF));
+            r.sentBefore ? '✓ sent before' : '✓ sent', const Color(0xFFD9F2DF));
       case SendStatus.error:
         return chip('✗ error', bad);
       case SendStatus.invalid:
@@ -348,7 +389,10 @@ class _BulkScreenState extends State<BulkScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final valid = _rows.where((r) => r.status != SendStatus.invalid).length;
+    final ready = _rows
+        .where(
+            (r) => r.status == SendStatus.ready || r.status == SendStatus.error)
+        .length;
     // Back during a bulk run would put the app in the background, where
     // Android may freeze or kill it half-way through.
     return PopScope(
@@ -422,10 +466,10 @@ class _BulkScreenState extends State<BulkScreen> {
                       const Text(
                         '• Required columns: name, email, amount\n'
                         '• Optional columns: receipt_no, block, house_no, type, mode, cheque_no, transaction_number, bank_name, received_date, language, remarks\n'
-                        '• Mode: cash, cheque, online. If blank: Cheque when cheque_no is filled, Online when transaction_number or bank_name is filled, otherwise Cash.\n'
-                        '• Block: A, B, C  •  Language: english, gujarati, hindi (blank = English)\n'
-                        '• Type: maintenance, deposit, transfer, other. For Other, put the details in remarks (or write them in the type column).\n'
-                        '• Upper / lower case does not matter.',
+                        '• Mode: Cash, Cheque, Online. If blank: Cheque when cheque_no is filled, Online when transaction_number or bank_name is filled, otherwise Cash.\n'
+                        '• Block: A, B, C  •  Language: English, Gujarati, Hindi (blank = English)\n'
+                        '• Type: Maintenance, Deposit, Transfer, Other. For Other, put the details in remarks (or write them in the type column).\n'
+                        '• Values are not case-sensitive.',
                         style: TextStyle(
                             fontSize: 11.5, height: 1.4, color: Colors.black87),
                       ),
@@ -436,7 +480,9 @@ class _BulkScreenState extends State<BulkScreen> {
             ],
             if (_rows.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text('${_rows.length} rows • $valid ready',
+              Text(
+                  '${_rows.length} ${_rows.length == 1 ? 'row' : 'rows'} • '
+                  '$ready ready to send',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               if (_sending)
                 Padding(
@@ -489,14 +535,14 @@ class _BulkScreenState extends State<BulkScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                              '${r.email}  |  ${r.type == PaymentType.other && r.remark.isNotEmpty ? 'other: ${r.remark}' : r.type.name}  |  ${r.mode.name}'
+                              '${r.email}  |  ${r.type == PaymentType.other && r.remark.isNotEmpty ? 'Other: ${r.remark}' : _typeLabel[r.type]}  |  ${_modeLabel[r.mode]}'
                               '${r.mode == PaymentMode.cheque && r.chqNo.isNotEmpty ? ' #${r.chqNo}' : ''}'
                               '${r.mode == PaymentMode.online && r.txnNo.isNotEmpty ? ' #${r.txnNo}' : ''}'
-                              '  |  ${r.lang}',
+                              '  |  ${_langLabel[r.lang] ?? r.lang}',
                               style: const TextStyle(fontSize: 11.5)),
                           if (r.sentBefore)
                             const Text(
-                                'Already sent earlier. Long-press to send again.',
+                                'Already sent. Long-press to send it again.',
                                 style: TextStyle(
                                     fontSize: 11, color: Colors.green)),
                           if (problem.isNotEmpty)

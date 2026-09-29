@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 
@@ -21,25 +22,59 @@ class NotSentException implements Exception {
   String toString() => '$cause';
 }
 
+/// The sender address (Settings > Sender Email, or the username when that is
+/// blank) is not an email address. Checked before connecting, because
+/// mailer's persistent connection does not validate it.
+class InvalidSenderException implements Exception {
+  final String address;
+  const InvalidSenderException(this.address);
+
+  @override
+  String toString() => 'Invalid sender email: $address';
+}
+
 class EmailService {
+  /// Tests only: allows the SMTP login over a plain (non-TLS) connection, so
+  /// a fake SMTP server on 127.0.0.1 can be used. Never set in the app.
+  @visibleForTesting
+  static bool allowInsecureForTesting = false;
+
+  /// Upper limit for one send. mailer has no timeout while the data (PDF) is
+  /// uploaded, so a stalled network could otherwise hang a send for many
+  /// minutes.
+  static const sendTimeout = Duration(seconds: 120);
+
   /// A short, actionable message for the common SMTP failures (the raw
-  /// exceptions are long and technical).
-  static String friendlyError(Object e) {
+  /// exceptions are long and technical). Always ends with a full stop.
+  static String friendlyError(Object e) => _end(_friendly(e));
+
+  static String _end(String s) {
+    final t = s.trim();
+    return RegExp(r'[.!?]$').hasMatch(t) ? t : '$t.';
+  }
+
+  static String _friendly(Object e) {
     if (e is NotSentException) e = e.cause;
+    if (e is InvalidSenderException) {
+      return 'Invalid sender email (Settings > Sender Email / Username): '
+          '"${e.address}"';
+    }
     if (e is SmtpClientAuthenticationException) {
       return 'Login failed: wrong username or password. For Gmail, use a '
           '16-letter App Password, not your normal password.';
     }
     if (e is HandshakeException || e is TlsException) {
-      return 'SSL error: use port 465 with SSL on, or port 587 with SSL '
-          'off.';
+      return 'SSL error: use port 465 with SSL on, or port 587 with SSL off.';
     }
     if (e is SocketException) {
-      return 'Could not connect. Check the internet connection and the SMTP '
-          'host / port.';
+      return _isConnectFailure(e)
+          ? 'Could not connect. Check the internet connection and the SMTP '
+              'host / port.'
+          : 'The connection to the mail server was lost. Check the internet '
+              'connection.';
     }
     if (e is TimeoutException) {
-      return 'The mail server did not respond (timeout). Check the internet '
+      return 'The mail server did not respond in time. Check the internet '
           'connection and the port.';
     }
     if (e is SmtpMessageValidationException) {
@@ -47,23 +82,27 @@ class EmailService {
       return _isSenderProblem(e)
           ? 'Invalid sender email (Settings > Sender Email / Username): '
               '$probs'
-          : 'Invalid email address: $probs';
+          : 'Invalid recipient email address: $probs';
     }
-    if (e is ArgumentError) return 'Invalid email address: ${e.message}';
+    if (e is ArgumentError) {
+      return 'Invalid recipient email address: ${e.message}';
+    }
     if (_serverRefused(e)) {
       final reply = (e as MailerException)
           .message
           .split('\nResponse from server: ')
           .last
-          .trim();
+          .trim()
+          .replaceAll(RegExp(r'^<\s*', multiLine: true), '');
       if (_quotaOrBlocked(e)) {
-        return 'The mail server is blocking sends (daily limit reached or '
-            'account blocked). Try again later. Server reply: $reply';
+        return 'The mail server is not accepting emails right now (daily '
+            'limit reached or account blocked). Try again later. Server '
+            'reply: $reply';
       }
       return 'The mail server refused the email. Server reply: $reply';
     }
     if (e is MailerException) return 'Mail server error: ${e.message}';
-    return '$e';
+    return '$e'.replaceFirst(RegExp(r'^Exception: '), '');
   }
 
   /// The server answered with an explicit 4xx / 5xx reply (greeting, MAIL,
@@ -79,16 +118,29 @@ class EmailService {
       RegExp(r'< (421\b|\d{3} [45]\.7\.\d+|\d{3} [45]\.4\.5)')
           .hasMatch((e as MailerException).message);
 
-  /// The sender (From / envelope) address itself is invalid: a Settings
-  /// problem, not the resident's.
-  static bool _isSenderProblem(SmtpMessageValidationException e) =>
-      e.problems.any((p) => p.code.contains('FROM'));
+  /// A 421 in reply to MAIL FROM: the server is closing this connection
+  /// (idle timeout, mails-per-connection limit) before the mail started —
+  /// nothing was sent and a new connection would work.
+  static bool _closedAtMailFrom(Object e) =>
+      _serverRefused(e) &&
+      (e as MailerException).message.startsWith('After sending MAIL FROM') &&
+      e.message.contains('< 421');
 
-  /// Wrong SMTP settings / no internet: every further send would fail the
-  /// same way (and repeated bad logins can get a Gmail account locked).
+  /// The sender (From / envelope) address itself is invalid: a Settings
+  /// problem, not the resident's. (mailer also uses FROM_ADDRESS for bad
+  /// recipients, so the message is checked too.)
+  static bool _isSenderProblem(SmtpMessageValidationException e) =>
+      e.problems.any((p) =>
+          p.code == 'ENV_FROM' ||
+          (p.code == 'FROM_ADDRESS' && p.msg.startsWith('The from address')));
+
+  /// Wrong SMTP settings / no internet / daily limit: every further send
+  /// would fail the same way (and repeated bad logins can get a Gmail
+  /// account locked).
   static bool isConfigError(Object e) {
     final c = e is NotSentException ? e.cause : e;
-    return c is SmtpClientAuthenticationException ||
+    return c is InvalidSenderException ||
+        c is SmtpClientAuthenticationException ||
         c is SmtpUnsecureException ||
         c is SmtpNoGreetingException ||
         c is HandshakeException ||
@@ -120,8 +172,8 @@ class EmailService {
   /// any other exception means delivery is uncertain (e.g. the connection
   /// dropped after the data was sent), so callers must not reuse the
   /// receipt no. in that case.
-  static Future<void> sendReceipt(AppSettings s, ReceiptData d) =>
-      _deliver(s, d, (message, server) => send(message, server));
+  static Future<void> sendReceipt(AppSettings s, ReceiptData d) => _deliver(
+      s, d, (message, server) => send(message, server).timeout(sendTimeout));
 
   /// Builds the mail, hands it to [transport], classifies failures and does
   /// the book-keeping after a successful send.
@@ -152,7 +204,11 @@ class EmailService {
       AppSettings s, ReceiptData d) async {
     if (!s.isConfigured) {
       throw Exception(
-          'SMTP settings are missing. Fill them in on the Settings tab.');
+          'SMTP settings are missing. Fill them in on the Settings tab first.');
+    }
+    final from = s.senderEmail.isEmpty ? s.username : s.senderEmail;
+    if (!ReceiptData(email: from).emailValid) {
+      throw InvalidSenderException(from);
     }
 
     String cleanedPassword = s.password;
@@ -165,6 +221,7 @@ class EmailService {
       s.host,
       port: s.port,
       ssl: s.ssl,
+      allowInsecure: allowInsecureForTesting,
       username: s.username,
       password: cleanedPassword,
     );
@@ -173,8 +230,7 @@ class EmailService {
     final html = buildReceiptHtml(d, inlineSignature: sig != null);
 
     final message = Message()
-      ..from = Address(
-          s.senderEmail.isEmpty ? s.username : s.senderEmail, s.senderName)
+      ..from = Address(from, s.senderName)
       ..recipients.addAll(d.emails)
       ..subject = s.buildSubject(d.recNo, d.name, d.amount)
       ..html = html;
@@ -217,22 +273,48 @@ class SmtpSession {
 
   final AppSettings settings;
   PersistentConnection? _conn;
+  int _onConn = 0; // mails sent on the current connection
+  DateTime _lastUse = DateTime.now();
+
+  /// Mails this session delivered in total.
+  int delivered = 0;
+
+  /// A connection idle longer than this is reopened first: servers close
+  /// idle connections, and a mail on a silently closed one would end as
+  /// "not sure whether it was delivered".
+  static const maxIdle = Duration(seconds: 30);
 
   /// Same contract as [EmailService.sendReceipt].
   Future<void> sendReceipt(ReceiptData d) =>
       EmailService._deliver(settings, d, (message, server) async {
-        _conn ??= PersistentConnection(server);
-        try {
-          await _conn!.send(message);
-        } catch (_) {
-          await close(); // the connection may be broken: reconnect next time
-          rethrow;
+        if (_conn != null && DateTime.now().difference(_lastUse) > maxIdle) {
+          await close();
+        }
+        for (var retried = false;; retried = true) {
+          final reused = _conn != null && _onConn > 0;
+          _conn ??= PersistentConnection(server);
+          try {
+            await _conn!.send(message).timeout(EmailService.sendTimeout);
+            _onConn++;
+            delivered++;
+            _lastUse = DateTime.now();
+            return;
+          } catch (e) {
+            await close(); // the connection may be broken: reconnect
+            // The server closed a used connection before this mail started
+            // (421 at MAIL FROM): nothing was sent, try once on a new one.
+            if (reused && !retried && EmailService._closedAtMailFrom(e)) {
+              continue;
+            }
+            rethrow;
+          }
         }
       });
 
   Future<void> close() async {
     final c = _conn;
     _conn = null;
+    _onConn = 0;
     if (c == null) return;
     try {
       await c.close().timeout(const Duration(seconds: 5));

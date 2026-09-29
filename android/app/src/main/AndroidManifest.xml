@@ -8,7 +8,7 @@
          send (wakelock_plus) uses FLAG_KEEP_SCREEN_ON: no permission. -->
 
     <!-- No storage permission on purpose: CSV / signature picking and the
-         demo-CSV "Save as" all go through the system file dialog (Storage
+         sample-CSV "Save as" all go through the system file dialog (Storage
          Access Framework), which works without any permission on every
          supported Android version. Asking for storage / MANAGE_EXTERNAL_STORAGE
          would only trigger Play Store policy rejection. -->

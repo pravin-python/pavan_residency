@@ -53,7 +53,12 @@ class ReceiptData {
     this.error = '',
   });
 
-  static final _emailRe = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  // No spaces, control or invisible characters (zero-width spaces etc.
+  // sneak in when addresses are copy-pasted and are refused by the server).
+  static final _emailRe =
+      RegExp(r'^[^@\s\x00-\x1f\u00ad\u200b-\u200f\u2060\ufeff]+@'
+          r'[^@\s\x00-\x1f\u00ad\u200b-\u200f\u2060\ufeff]+\.'
+          r'[^@\s\x00-\x1f\u00ad\u200b-\u200f\u2060\ufeff]+$');
 
   /// One or more recipients: 'a@x.com' or 'a@x.com, b@y.com' / ';' / space.
   List<String> get emails =>

@@ -75,8 +75,9 @@ class _SingleScreenState extends State<SingleScreen> {
     final s = await SettingsService.load();
     if (!mounted || !_recNoIsAuto) return;
     setState(() {
-      _suggestedNo = s.nextReceiptNo;
-      _recNo.text = '${s.nextReceiptNo}';
+      // A spare number (from a failed send) is issued before the counter.
+      _suggestedNo = SettingsService.peekReceiptNo(s);
+      _recNo.text = '$_suggestedNo';
     });
   }
 
@@ -142,7 +143,7 @@ class _SingleScreenState extends State<SingleScreen> {
       return;
     }
     final auto = _recNoIsAuto;
-    if (!auto && d.recNo < s.nextReceiptNo) {
+    if (!auto && d.recNo < s.nextReceiptNo && !s.spareNos.contains(d.recNo)) {
       final ok = await _confirm('Receipt #${d.recNo} may already have been '
           'issued (the next number is ${s.nextReceiptNo}). Send with this '
           'number anyway?');
@@ -172,7 +173,7 @@ class _SingleScreenState extends State<SingleScreen> {
       } on NotSentException catch (e) {
         // Certainly not delivered: the reserved number can be reused.
         if (auto) await SettingsService.releaseReceiptNo(d.recNo);
-        _snack('✗ Failed: ${EmailService.friendlyError(e)}', err: true);
+        _snack('✗ Not sent. ${EmailService.friendlyError(e)}', err: true);
       } catch (e) {
         // May have been delivered: count #recNo as used so it is never
         // given to anyone else.
@@ -221,7 +222,7 @@ class _SingleScreenState extends State<SingleScreen> {
                 decoration: const InputDecoration(labelText: 'Email *'),
                 validator: (v) => ReceiptData(email: v ?? '').emailValid
                     ? null
-                    : 'Valid email',
+                    : 'Enter a valid email',
               ),
             ),
           ]),
@@ -237,7 +238,7 @@ class _SingleScreenState extends State<SingleScreen> {
                     DropdownMenuItem(value: b, child: Text(b)),
                 ],
                 onChanged: (v) => setState(() => _block = v),
-                validator: (v) => v == null ? 'Select block' : null,
+                validator: (v) => v == null ? 'Select a block' : null,
               ),
             ),
             const SizedBox(width: 10),
@@ -260,7 +261,7 @@ class _SingleScreenState extends State<SingleScreen> {
                     ReceiptData(amount: ReceiptData.parseAmount(v ?? ''))
                             .amountValid
                         ? null
-                        : 'Whole rupees > 0',
+                        : 'Enter whole rupees above 0',
               ),
             ),
             const SizedBox(width: 10),
@@ -290,7 +291,8 @@ class _SingleScreenState extends State<SingleScreen> {
               controller: _remark,
               maxLength: ReceiptData.maxRemark,
               decoration: const InputDecoration(
-                labelText: 'Other details * (printed on the receipt)',
+                labelText: 'Other details *',
+                helperText: 'Printed on the receipt',
                 hintText: 'e.g. Parking charges, Late fee',
               ),
               validator: (v) =>

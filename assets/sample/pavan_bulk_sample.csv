@@ -1,5 +1,5 @@
 receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,bank_name,received_date,email,language,remarks
-,A,101,Ramesh Patel,1500,Cash,,Maintance,,,2026-09-25,ramesh@example.com,Gujarati,
+,A,101,Ramesh Patel,1500,Cash,,Maintenance,,,2026-09-25,ramesh@example.com,Gujarati,
 ,B,202,Suresh Shah,"25,000",Cheque,123456,Deposit,,SBI,2026-09-25,suresh@example.com,Hindi,
 ,C,303,John David,5000,Online,,Transfer fee,UTR458712369,HDFC,2026-09-26,john@example.com,English,
-,A,104,Mahesh Bhai,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges
+,A,104,Mahesh Joshi,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges

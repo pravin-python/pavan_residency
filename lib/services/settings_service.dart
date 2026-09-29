@@ -24,6 +24,12 @@ class AppSettings {
   /// The user confirmed [nextReceiptNo] at least once on this install.
   bool counterConfirmed;
 
+  /// Receipt numbers that were taken for a send that then certainly failed,
+  /// but could not be given back because a later number was already taken
+  /// (parallel sends). They are issued again first, so the sequence has no
+  /// gaps — also after the CSV is loaded again or the app restarts.
+  List<int> spareNos;
+
   // Signature image (base64) - jpg/jpeg/png
   String signatureB64;
   String signatureMime;
@@ -40,9 +46,10 @@ class AppSettings {
     this.attachPdf = true,
     this.nextReceiptNo = 794,
     this.counterConfirmed = false,
+    List<int>? spareNos,
     this.signatureB64 = '',
     this.signatureMime = 'image/png',
-  });
+  }) : spareNos = spareNos ?? [];
 
   bool get isConfigured =>
       host.isNotEmpty && username.isNotEmpty && password.isNotEmpty;
@@ -67,6 +74,7 @@ class AppSettings {
         'attachPdf': attachPdf,
         'nextReceiptNo': nextReceiptNo,
         'counterConfirmed': counterConfirmed,
+        'spareNos': spareNos,
         'signatureB64': signatureB64,
         'signatureMime': signatureMime,
       };
@@ -83,6 +91,10 @@ class AppSettings {
         attachPdf: j['attachPdf'] ?? true,
         nextReceiptNo: j['nextReceiptNo'] ?? 794,
         counterConfirmed: j['counterConfirmed'] ?? false,
+        spareNos: [
+          for (final n in (j['spareNos'] as List<dynamic>? ?? const []))
+            if (n is num) n.toInt(),
+        ],
         signatureB64: j['signatureB64'] ?? '',
         signatureMime: j['signatureMime'] ?? 'image/png',
       );
@@ -134,39 +146,80 @@ class SettingsService {
     changes.value++;
   }
 
-  /// Reserves the next receipt no. (counter +1 immediately), so a Single
-  /// send and a running Bulk send can never get the same number. Skips
-  /// numbers [reserve]d for explicit use.
-  static Future<int> takeReceiptNo() async {
-    final s = await load();
-    // read + bump with no await in between
+  /// The number the next [takeReceiptNo] will return (for display).
+  static int peekReceiptNo(AppSettings s) {
+    final spare = _smallestSpare(s);
+    if (spare != null) return spare;
     var n = s.nextReceiptNo;
     while (_reserved.contains(n)) {
       n++;
     }
-    s.nextReceiptNo = n + 1;
+    return n;
+  }
+
+  static int? _smallestSpare(AppSettings s) {
+    int? best;
+    for (final n in s.spareNos) {
+      if (_reserved.contains(n)) continue;
+      if (best == null || n < best) best = n;
+    }
+    return best;
+  }
+
+  /// Reserves the next receipt no. so a Single send and a running Bulk send
+  /// (several parallel connections) can never get the same number. A spare
+  /// number (see [AppSettings.spareNos]) is used first; otherwise the
+  /// counter moves +1 immediately, skipping numbers [reserve]d for explicit
+  /// use.
+  static Future<int> takeReceiptNo() async {
+    final s = await load();
+    // read + change with no await in between
+    final spare = _smallestSpare(s);
+    final int n;
+    if (spare != null) {
+      s.spareNos.remove(spare);
+      n = spare;
+    } else {
+      var next = s.nextReceiptNo;
+      while (_reserved.contains(next)) {
+        next++;
+      }
+      s.nextReceiptNo = next + 1;
+      n = next;
+    }
     await save(s);
     return n;
   }
 
-  /// Gives back a number from [takeReceiptNo] whose send failed — only if
-  /// nothing was taken after it, so the sequence has no gaps / duplicates.
-  /// Returns false when a later number was already taken (the caller should
-  /// then keep using [n] for the same receipt).
-  static Future<bool> releaseReceiptNo(int n) async {
+  /// Gives back a number from [takeReceiptNo] whose send certainly failed.
+  /// If it is the last one issued the counter goes back; otherwise (a later
+  /// number was already taken) it is kept as a spare and issued next. Either
+  /// way the sequence ends up with no gaps and no duplicates.
+  static Future<void> releaseReceiptNo(int n) async {
     final s = await load();
-    if (s.nextReceiptNo != n + 1) return false;
-    s.nextReceiptNo = n;
+    if (n >= s.nextReceiptNo || s.spareNos.contains(n)) return;
+    if (s.nextReceiptNo == n + 1) {
+      s.nextReceiptNo = n;
+      // Spares right below the counter become the counter again.
+      while (s.spareNos.remove(s.nextReceiptNo - 1)) {
+        s.nextReceiptNo--;
+      }
+    } else {
+      s.spareNos.add(n);
+    }
     await save(s);
-    return true;
   }
 
-  /// Marks [used] as issued: the counter moves past it.
+  /// Marks [used] as issued: the counter moves past it (and it is no longer
+  /// a spare).
   static Future<void> bumpReceiptNo(int used) async {
     final s = await load();
+    final wasSpare = s.spareNos.remove(used);
     if (used >= s.nextReceiptNo) {
       s.nextReceiptNo = used + 1;
-      await save(s);
+    } else if (!wasSpare) {
+      return;
     }
+    await save(s);
   }
 }

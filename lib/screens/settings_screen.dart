@@ -100,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         withData: true,
       );
     } catch (e) {
-      _snack('Could not open the file: $e', err: true);
+      _snack('Could not open the file picker: $e', err: true);
       return;
     }
     final raw = res?.files.single.bytes;
@@ -119,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Persist right away so the preview/sent receipts and the next app
     // start agree with what is shown here.
     await SettingsService.save(s);
-    _snack('Signature saved ✓');
+    _snack('✓ Signature saved');
   }
 
   Future<void> _removeSignature() async {
@@ -152,16 +152,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             builder: (ctx) => AlertDialog(
               title: const Text('Check the Next Receipt No.'),
               content: Text('The next receipt will be #$no.\n\n'
-                  'It should be the last number used on the old phone or in '
-                  'the receipt book + 1, otherwise numbers will repeat. Is '
-                  'this correct?'),
+                  'This must be one more than the last receipt number used '
+                  '(on the old phone or in the receipt book), otherwise '
+                  'numbers will repeat. Is this correct?'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
                     child: const Text('No, change it')),
                 FilledButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Yes, correct')),
+                    child: const Text('Yes, it is correct')),
               ],
             ),
           ) ??
@@ -189,6 +189,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     s.attachPdf = _attachPdf;
     if (changedNo) {
       s.nextReceiptNo = typedNo; // deliberately changed by the user
+      // Spares at or above the new counter would be issued twice.
+      s.spareNos.removeWhere((n) => n >= typedNo);
     }
     s.counterConfirmed = true;
     await SettingsService.save(s);
@@ -196,7 +198,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nextNo.text = '${s.nextReceiptNo}';
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Settings saved ✓'), backgroundColor: Colors.green));
+        content: Text('✓ Settings saved'), backgroundColor: Colors.green));
   }
 
   @override
@@ -227,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: const Text('SSL', style: TextStyle(fontSize: 13)),
-              subtitle: Text(_ssl ? 'Port 465' : 'STARTTLS 587',
+              subtitle: Text(_ssl ? 'Port 465' : 'Port 587 (STARTTLS)',
                   style: const TextStyle(fontSize: 11)),
               value: _ssl,
               onChanged: (v) => setState(() {
@@ -278,7 +280,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             controller: _subject,
             decoration: const InputDecoration(
                 labelText: 'Subject Template',
-                helperText: '{no} = receipt no, {name}, {amount}')),
+                helperText:
+                    '{no} = receipt no., {name} = name, {amount} = amount')),
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -294,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 helperText:
                     'Number of the next receipt. Goes up by 1 after each send.')),
         const Divider(height: 30),
-        const Text('Signature Image (jpg / jpeg / png)',
+        const Text('Signature Image (JPG / PNG)',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
         const SizedBox(height: 10),
         if (sig != null)

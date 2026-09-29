@@ -40,7 +40,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Send Email'));
     await tester.pumpAndSettle();
-    expect(find.text('Select block'), findsOneWidget);
+    expect(find.text('Select a block'), findsOneWidget);
 
     await tester.tap(find.text('Bulk CSV'));
     await tester.pumpAndSettle();

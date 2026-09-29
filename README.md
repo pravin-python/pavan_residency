@@ -10,7 +10,7 @@ You can send one receipt at a time or many at once from a CSV file.
 | **Owner** | [pravin-python](https://github.com/pravin-python) |
 | **Repository** | https://github.com/pravin-python/pavan_residency |
 | **App id** | `com.pavanresidency.pavan_residency` |
-| **Current version** | `1.1.1+3` (see `version:` in `pubspec.yaml`; the app shows it at the bottom of **Settings**) |
+| **Current version** | `1.1.2+4` (see `version:` in `pubspec.yaml`; the app shows it at the bottom of **Settings**) |
 | **Android** | 7.0+ (minSdk 24), target SDK 36 |
 | **Built with** | Flutter 3.47 (stable), JDK 17, Android SDK 36 |
 
@@ -38,8 +38,9 @@ You can send one receipt at a time or many at once from a CSV file.
 ## Features
 
 - **Single**: fill the form (Block A/B/C, Payment Mode, Type, Other details), see a PDF preview, and send the email.
-- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All** sends every ready row **in parallel** (4 SMTP connections at once, each logged in once and reused), shows a status for every row, and you can press **Stop** at any time.
-  - The first email is sent alone to check the login, so a wrong password fails once instead of four times.
+- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All Emails** sends every ready row **in parallel** (up to 4 SMTP connections at once, each logged in once and reused), shows a status for every row, and you can press **Stop** at any time.
+  - Rows are sent one at a time until the first email is delivered. That checks the login, so a wrong password fails once instead of four times.
+  - If the mail server allows fewer parallel connections, the extra connections hand their rows back and the rest are still sent.
   - Receipts that were already sent (for example after an interrupted run) are skipped. Long-press a row to send it again.
   - If the password is wrong or Gmail's daily limit is reached, Bulk stops by itself.
 - **Universal receipt**: the payment section is the same for Cash, Cheque and Online. It always shows Mode, Bank, Cheque No. and Transaction No. (`-` if blank).
@@ -151,7 +152,7 @@ flutter test           # "All tests passed!"
 ```powershell
 adb devices            # the phone must show as "device" (not "unauthorized")
 flutter run            # debug mode, hot reload with 'r'
-flutter run --release  # or check the real release speed
+flutter run --release  # release build, to check real-world speed
 ```
 
 ---
@@ -165,8 +166,8 @@ Follow these steps, in order, every time you release a new version.
 In `pubspec.yaml`:
 
 ```yaml
-version: 1.1.1+3      # before
-version: 1.1.2+4      # after: raise the name (1.1.2) and ALWAYS raise the number after + (4)
+version: 1.1.2+4      # before
+version: 1.1.3+5      # after: raise the name (1.1.3) and ALWAYS raise the number after + (5)
 ```
 
 > Play Store and Android only accept an update when the number after `+` (versionCode) goes up.
@@ -216,7 +217,7 @@ Make sure the release key was used and not the debug key:
 - Every release is signed with **`android\pavan-release.jks`** (alias `pavan`). Its password is in
   **`android\key.properties`**.
 - Both files are **gitignored** and are never committed or pushed to GitHub.
-- ⚠️ **Keep a backup of both files together** (Google Drive / pendrive / a second PC).
+- ⚠️ **Keep a backup of both files together** (Google Drive / USB drive / a second PC).
   **If the key is lost, the app can never be updated.** Phones reject an update signed with a
   different key, so everyone would have to uninstall and reinstall, and their settings would be lost.
 - To build on another PC, copy the same two files into that PC's `android\` folder.
@@ -279,14 +280,14 @@ number of the old phone / receipt book + 1.
 ## CSV format (Bulk)
 
 A sample is in `assets/sample/pavan_bulk_sample.csv`. You can also get it with the
-**"Download Demo CSV"** button on the Bulk tab.
+**"Download Sample CSV"** button on the Bulk tab.
 
 ```csv
 receipt_no,block,house_no,name,amount,mode,cheque_no,type,transaction_number,bank_name,received_date,email,language,remarks
-,A,101,Ramesh Patel,1500,Cash,,Maintance,,,2026-09-25,ramesh@example.com,Gujarati,
+,A,101,Ramesh Patel,1500,Cash,,Maintenance,,,2026-09-25,ramesh@example.com,Gujarati,
 ,B,202,Suresh Shah,"25,000",Cheque,123456,Deposit,,SBI,2026-09-25,suresh@example.com,Hindi,
 ,C,303,John David,5000,Online,,Transfer fee,UTR458712369,HDFC,2026-09-26,john@example.com,English,
-,A,104,Mahesh Bhai,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges
+,A,104,Mahesh Joshi,700,Cash,,Other,,,,mahesh@example.com,Gujarati,Parking charges
 ```
 
 **General**
@@ -322,6 +323,7 @@ A row with a problem shows **"✗ fix"** in the list, and a red line explains th
 ## Receipt number rules
 
 - **Next Receipt No.** is in Settings. It goes up by 1 after every successful send (794, 795, 796 ...).
+- If a number was taken for a send that then certainly failed, and a later number was already taken meanwhile (parallel sends), it is kept as a **spare** and used for the next receipt. Spares are saved with the settings, so there are no gaps even after the app restarts.
 - Single and Bulk **reserve** the number when a send starts, so the same number can never be used twice, even when both run at the same time.
 - If a mail is **certainly not sent** (wrong password, no internet, server refused), its number is released and the next receipt gets it (no gap).
 - If a mail **may have been sent** (the connection dropped mid-send), the number stays used. The app says "Not sure whether the email was delivered"; check the Sent folder. A retry sends the same number again.
@@ -337,7 +339,7 @@ A row with a problem shows **"✗ fix"** in the list, and a red line explains th
 | `INTERNET` | To send email over SMTP |
 | `ACCESS_NETWORK_STATE` | To check the network state |
 
-- **No storage permission, on purpose.** Picking the CSV and the signature and "Download Demo CSV"
+- **No storage permission, on purpose.** Picking the CSV and the signature and "Download Sample CSV"
   all go through Android's system file dialog (Storage Access Framework), which needs no permission.
   `MANAGE_EXTERNAL_STORAGE` / storage permissions would get the app rejected by Play Store.
 - **Backup is off** (`allowBackup=false` + `data_extraction_rules.xml`), so the SMTP password never
@@ -367,10 +369,10 @@ lib/
     single_screen.dart         # single receipt form
     bulk_screen.dart           # CSV upload, Send All, Stop
     settings_screen.dart       # SMTP + signature + receipt settings
-  utils/file_saver*.dart       # "Save as" dialog (demo CSV)
+  utils/file_saver*.dart       # "Save as" dialog (sample CSV)
 assets/
   fonts/                       # Noto Sans (Gujarati, Devanagari, Latin)
-  sample/pavan_bulk_sample.csv # demo CSV
+  sample/pavan_bulk_sample.csv # sample CSV
   icon/                        # launcher icon (dart run flutter_launcher_icons)
 android/
   app/build.gradle.kts         # release signing (+ guard), APK name Pavan_Residency-*
@@ -406,9 +408,9 @@ the sent log, the signature, error messages, and the small-phone / large-font la
 | `android/key.properties is missing - refusing to build a release ...` | Copy `key.properties` + `pavan-release.jks` from your backup into `android\`. |
 | Phone says "App not installed" / `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app was signed with a different key. Note down Next Receipt No., uninstall, then install. |
 | `adb devices` shows `unauthorized` | Tap "Allow USB debugging" on the phone, or reconnect the cable. |
-| Email: "Login fail" | Gmail App Password (not the normal password), 2-Step Verification ON. |
+| Email: "Login failed" | Use a Gmail App Password (not the normal password) and turn 2-Step Verification ON. |
 | Email: "SSL error" | Port 465 → SSL ON, port 587 → SSL OFF. |
-| Bulk: "The mail server is blocking sends (daily limit reached ...)" | Gmail's daily limit is reached. Try again after a few hours or the next day. Already-sent rows are skipped. |
+| Bulk: "The mail server is not accepting emails right now (daily limit reached ...)" | Gmail's daily limit is reached. Try again after a few hours or the next day. Already-sent rows are skipped. |
 | First build is very slow | Gradle / NDK download the first time (10–15 min). Later builds take 1–3 min. |
 
 ---
