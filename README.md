@@ -1,6 +1,6 @@
 # Pavan Residency (Receipt Mailer) (Flutter)
 
-Android app for **Pavan Residency (Bhadaj) Co-op Housing Society**.
+Android app for **Pavan Residency Co-op Housing Society**.
 It creates maintenance receipts in **Gujarati / Hindi / English** and emails them
 through **your own SMTP** account (Gmail etc.; the settings are stored on the phone).
 You can send one receipt at a time or many at once from a CSV file.
