@@ -89,7 +89,7 @@ class AppSettings {
         senderEmail: j['senderEmail'] ?? '',
         subjectTpl: j['subjectTpl'] ?? 'Pavan Residency Receipt #{no}',
         attachPdf: j['attachPdf'] ?? true,
-        nextReceiptNo: j['nextReceiptNo'] ?? 794,
+        nextReceiptNo: j['nextReceiptNo'] ?? 1,
         counterConfirmed: j['counterConfirmed'] ?? false,
         spareNos: [
           for (final n in (j['spareNos'] as List<dynamic>? ?? const []))
