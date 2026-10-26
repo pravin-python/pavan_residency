@@ -246,9 +246,41 @@ class CsvService {
   static String _norm(dynamic h) =>
       h.toString().toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
 
+  /// Header text reduced the way column names are matched (lower-case
+  /// letters only): 'Email_Sent' and 'email sent' are the same column.
+  static String normHeader(String h) => _norm(h);
+
+  /// The recipient field a header names ('email', 'amount', ...) or null.
+  static String? columnKey(String header) => _colMap[_norm(header)];
+
   /// How many distinct known columns [row] names (to find the header row).
   static int _known(List<dynamic> row) =>
       row.map((h) => _colMap[_norm(h)]).whereType<String>().toSet().length;
+
+  /// Index of the header row: the first of the first 10 rows that names at
+  /// least two known columns, or -1.
+  static int findHeaderRow(List<List<dynamic>> rows) {
+    final limit = rows.length < 10 ? rows.length : 10;
+    for (var i = 0; i < limit; i++) {
+      if (_known(rows[i]) >= 2) return i;
+    }
+    return -1;
+  }
+
+  /// Recipients read from an already split table (a Google Sheets
+  /// worksheet). [sourceRows] holds, for each receipt, its 0-based index in
+  /// the table. Same rules as [parse].
+  static ({int headerAt, List<ReceiptData> receipts, List<int> sourceRows})?
+      parseTable(List<List<dynamic>> rows) {
+    final headerAt = findHeaderRow(rows);
+    if (headerAt < 0) return null;
+    final built = _build(rows, headerAt);
+    return (
+      headerAt: headerAt,
+      receipts: built.receipts,
+      sourceRows: built.sourceRows,
+    );
+  }
 
   static List<ReceiptData> parse(Uint8List bytes) {
     var text = decode(bytes).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
@@ -273,21 +305,26 @@ class CsvService {
         eol: '\n',
         fieldDelimiter: delim,
       ).convert(text);
-      final limit = r.length < 10 ? r.length : 10;
-      for (var i = 0; i < limit; i++) {
-        if (_known(r[i]) >= 2) {
-          rows = r;
-          headerAt = i;
-          break;
-        }
+      final at = findHeaderRow(r);
+      if (at >= 0) {
+        rows = r;
+        headerAt = at;
+        break;
       }
-      if (headerAt >= 0) break;
     }
     if (headerAt < 0) return [];
+    return _build(rows, headerAt).receipts;
+  }
 
+  /// Turns the rows below the header into receipts (shared by CSV files and
+  /// Google Sheets worksheets). [sourceRows] are the table indexes the
+  /// receipts came from.
+  static ({List<ReceiptData> receipts, List<int> sourceRows}) _build(
+      List<List<dynamic>> rows, int headerAt) {
     final header = rows[headerAt].map(_norm).toList();
 
     final maps = <Map<String, String>>[];
+    final mapRows = <int>[]; // table index of each entry of [maps]
     for (var r = headerAt + 1; r < rows.length; r++) {
       final row = rows[r];
       if (row.every((c) => c.toString().trim().isEmpty)) continue;
@@ -309,7 +346,10 @@ class CsvService {
       // house filled, nobody paid yet): nothing to send, don't list them.
       final placeholder =
           [m['name'], m['email'], m['amount']].every((v) => (v ?? '').isEmpty);
-      if (!placeholder) maps.add(m);
+      if (!placeholder) {
+        maps.add(m);
+        mapRows.add(r);
+      }
     }
 
     // `date` wins; otherwise the payment's received_date; else today.
@@ -369,6 +409,6 @@ class CsvService {
       }
       out.add(d);
     }
-    return out;
+    return (receipts: out, sourceRows: mapRows);
   }
 }

@@ -14,10 +14,22 @@ import '../services/email_service.dart';
 import '../services/pdf_service.dart';
 import '../services/sent_log.dart';
 import '../services/settings_service.dart';
+import '../services/sheets/google_credentials.dart';
+import '../services/sheets/sheet_recipient_reader.dart';
+import '../services/sheets/sheet_status_writer.dart';
+import '../services/sheets/sheets_api.dart';
+import '../services/sheets/sheets_service.dart';
 import '../utils/file_saver.dart';
+import '../widgets/sheets_source_panel.dart';
+
+/// Where the recipients come from.
+enum _Source { sheets, csv }
 
 class BulkScreen extends StatefulWidget {
-  const BulkScreen({super.key});
+  const BulkScreen({super.key, this.onOpenSettings});
+
+  /// Lets the Google Sheets panel jump to the Settings tab.
+  final VoidCallback? onOpenSettings;
 
   /// How many emails are sent at the same time (one SMTP connection each).
   /// Gmail allows a few parallel connections; more would risk being
@@ -48,6 +60,15 @@ class _BulkScreenState extends State<BulkScreen> {
   int _total = 0;
   bool _stop = false;
 
+  /// Google Sheets is the default source; CSV stays available.
+  _Source _source = _Source.sheets;
+
+  /// The loaded worksheet (Google Sheets source only).
+  SheetsSession? _sheet;
+
+  /// Saving statuses again after a failed write is running.
+  bool _savingStatus = false;
+
   /// Rows that own their receipt no. already (a send that may have been
   /// delivered, a number that could not be given back, or a deliberate
   /// re-send): a retry uses the same number and they don't trigger the
@@ -65,21 +86,7 @@ class _BulkScreenState extends State<BulkScreen> {
       if (bytes == null) return; // cancelled
       final rows = CsvService.parse(bytes);
       _flagDuplicateNos(rows);
-      // Already mailed from this phone (e.g. an interrupted bulk run, then
-      // the same CSV loaded again): don't send those a second time.
-      var before = 0;
-      final matched = <String>{}; // one log entry marks at most one row
-      for (final r in rows) {
-        if (r.status != SendStatus.ready) continue;
-        final no = await SentLog.sentNo(r);
-        if (no != null && matched.add(SentLog.keyOf(r))) {
-          r
-            ..status = SendStatus.sent
-            ..recNo = no
-            ..sentBefore = true;
-          before++;
-        }
-      }
+      final before = await _markSentBefore(rows);
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -96,6 +103,130 @@ class _BulkScreenState extends State<BulkScreen> {
       }
     } catch (e) {
       _snack('Could not read the CSV file: $e', err: true);
+    }
+  }
+
+  /// Already mailed from this phone (e.g. an interrupted bulk run, then the
+  /// same list loaded again): don't send those a second time. Returns how
+  /// many rows were marked.
+  Future<int> _markSentBefore(List<ReceiptData> rows) async {
+    var before = 0;
+    final matched = <String>{}; // one log entry marks at most one row
+    for (final r in rows) {
+      if (r.status != SendStatus.ready) continue;
+      final no = await SentLog.sentNo(r);
+      if (no != null && matched.add(SentLog.keyOf(r))) {
+        r
+          ..status = SendStatus.sent
+          ..recNo = no
+          ..sentBefore = true;
+        before++;
+      }
+    }
+    return before;
+  }
+
+  void _setSource(_Source s) {
+    if (_sending || _savingStatus || s == _source) return;
+    setState(() {
+      _source = s;
+      _rows = [];
+      _sheet = null;
+      _done = 0;
+      _total = 0;
+      _ownsNumber.clear();
+    });
+  }
+
+  /// A worksheet was loaded from Google Sheets.
+  Future<void> _onSheetLoaded(SheetsSession session, SheetLoad load) async {
+    final rows = load.rows;
+    _flagDuplicateNos(rows);
+    final before = await _markSentBefore(rows);
+    var owed = 0;
+    for (final r in rows) {
+      if (r.status != SendStatus.sent) continue;
+      // Delivered (this phone's log or the sheet says so) -> show its number.
+      if (r.recNo == 0) {
+        final no = await SentLog.sentNo(r);
+        if (no != null) r.recNo = no;
+      }
+      // This phone sent it but the sheet does not say TRUE: the status write
+      // failed or the app was closed first. Offer to save it; never re-send.
+      if (r.sentBefore && r.sheetStatus.toUpperCase() != 'TRUE') {
+        r.sheetPending = true;
+        owed++;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _rows = rows;
+      _sheet = session;
+      _done = 0;
+      _total = 0;
+      _ownsNumber.clear();
+    });
+    if (rows.isEmpty) {
+      _snack('No recipients found in "${session.worksheetTitle}". Check the '
+          'header row and the data.',
+          err: true);
+    } else if (load.warnings.isNotEmpty) {
+      _snack(load.warnings.join(' '), err: true);
+    } else if (owed > 0) {
+      _snack('$owed ${owed == 1 ? 'email was' : 'emails were'} sent earlier '
+          'but not marked TRUE in the sheet. Tap "Save $owed pending '
+          '${owed == 1 ? 'status' : 'statuses'}".');
+    } else if (before > 0) {
+      _snack('$before ${before == 1 ? 'row was' : 'rows were'} already sent '
+          'and will be skipped. Long-press a row to send it again.');
+    }
+  }
+
+  /// A status write finished (saved or failed) for one recipient.
+  void _onStatusOutcome(StatusOutcome o) {
+    final r = o.update.receipt;
+    if (o.saved) {
+      r
+        ..sheetStatus = o.update.sent ? 'TRUE' : 'FALSE'
+        ..sheetPending = null
+        ..sheetError = '';
+    } else {
+      r.sheetError = o.error!; // [sheetPending] keeps what is still owed
+    }
+    if (mounted) setState(() {});
+  }
+
+  int get _pendingStatuses =>
+      _rows.where((r) => r.sheetPending != null && r.sourceRow != null).length;
+
+  /// Writes the statuses that could not be saved earlier.
+  Future<void> _savePendingStatuses() async {
+    final sheet = _sheet;
+    if (sheet == null || _sending || _savingStatus) return;
+    final todo = _rows.where((r) => r.sheetPending != null).toList();
+    if (todo.isEmpty) return;
+    setState(() => _savingStatus = true);
+    try {
+      await sheet.prepareForSending();
+      final sync = SheetStatusSync(sheet.writer, onOutcome: _onStatusOutcome);
+      for (final r in todo) {
+        sync.enqueue(r, r.sheetPending!);
+      }
+      await sync.flush();
+      final left = todo.where((r) => r.sheetPending != null).length;
+      _snack(
+          left == 0
+              ? '✓ Saved ${todo.length} '
+                  '${todo.length == 1 ? 'status' : 'statuses'} to the sheet.'
+              : '$left of ${todo.length} statuses still could not be saved. '
+                  '${todo.firstWhere((r) => r.sheetPending != null).sheetError}',
+          err: left > 0);
+    } on SheetsApiException catch (e) {
+      _snack('Google Sheets: ${e.message}', err: true);
+    } on CredentialException catch (e) {
+      _snack(e.message, err: true);
+    } finally {
+      if (mounted) setState(() => _savingStatus = false);
     }
   }
 
@@ -212,6 +343,25 @@ class _BulkScreenState extends State<BulkScreen> {
           'Tip: leave receipt_no blank in the CSV to get automatic numbers.');
       if (!ok || !mounted) return;
     }
+    // Google Sheets: before the first email, check that the spreadsheet and
+    // tab are reachable and writable and that the status column exists, so
+    // no status is lost for lack of access. Nothing is sent if this fails.
+    final sheet = _source == _Source.sheets ? _sheet : null;
+    if (sheet != null) {
+      try {
+        await sheet.prepareForSending();
+      } on SheetsApiException catch (e) {
+        _snack('Google Sheets: ${e.message} No emails were sent.', err: true);
+        return;
+      } on CredentialException catch (e) {
+        _snack('${e.message} No emails were sent.', err: true);
+        return;
+      }
+      if (!mounted) return;
+    }
+    final sync = sheet == null
+        ? null
+        : SheetStatusSync(sheet.writer, onOutcome: _onStatusOutcome);
     setState(() {
       _sending = true;
       _stop = false;
@@ -254,9 +404,14 @@ class _BulkScreenState extends State<BulkScreen> {
       // first, then the live counter) → 794, 795, 796 … in sequence, never
       // shared with another connection or a Single send made meanwhile.
       final autoNo = r.recNo == 0;
+      // What the sheet's status column is owed once this attempt is over:
+      // true only after the mail was confirmed delivered, false only when it
+      // was certainly NOT delivered. An uncertain outcome writes nothing.
+      bool? statusToSave;
       try {
         if (autoNo) r.recNo = await SettingsService.takeReceiptNo();
         await session.sendReceipt(r);
+        statusToSave = true;
         r.status = SendStatus.sent;
         r.error = '';
         _ownsNumber.remove(r);
@@ -285,6 +440,7 @@ class _BulkScreenState extends State<BulkScreen> {
         }
         r.status = SendStatus.error;
         r.error = EmailService.friendlyError(e);
+        statusToSave = false;
         // Wrong password / host / no internet / daily limit: every next row
         // would fail the same way (and repeated bad logins can lock Gmail).
         if (EmailService.isConfigError(e)) abortReason ??= r.error;
@@ -298,6 +454,9 @@ class _BulkScreenState extends State<BulkScreen> {
         _ownsNumber.add(r);
         await SettingsService.bumpReceiptNo(r.recNo).catchError((_) {});
       }
+      // Queued after the outcome is settled; saved in the background so the
+      // sheet never slows the sending down.
+      if (statusToSave != null) sync?.enqueue(r, statusToSave);
       if (mounted) setState(() => _done++);
       return true;
     }
@@ -331,6 +490,7 @@ class _BulkScreenState extends State<BulkScreen> {
       }
     } finally {
       await Future.wait(sessions.map((x) => x.close()));
+      await sync?.flush(); // never throws: failures are shown on the rows
       SettingsService.unreserve(explicit);
       await WakelockPlus.disable().catchError((_) {});
       for (final r in todo.where((r) => r.status == SendStatus.sending)) {
@@ -340,13 +500,22 @@ class _BulkScreenState extends State<BulkScreen> {
     }
     final left = todo.where((r) => r.status == SendStatus.ready).length;
     final failed = todo.where((r) => r.status == SendStatus.error).length;
+    // Emails that went out (or certainly did not) whose sheet status is not
+    // saved yet: reported as such, never as failed emails.
+    final unsaved = todo.where((r) => r.sheetPending != null).length;
+    final sheetNote = unsaved == 0
+        ? ''
+        : ' $unsaved ${unsaved == 1 ? 'status' : 'statuses'} could not be '
+            'saved to the Google Sheet (the emails themselves are not '
+            'affected). Tap "Save $unsaved pending '
+            '${unsaved == 1 ? 'status' : 'statuses'}".';
     if (abortReason != null) {
-      _snack('Bulk send stopped. $abortReason', err: true);
+      _snack('Bulk send stopped. $abortReason$sheetNote', err: true);
     } else {
       _snack(
           'Bulk send finished: $sent sent, $failed failed'
-          '${left > 0 ? ', $left not sent (stopped)' : ''}.',
-          err: failed > 0);
+          '${left > 0 ? ', $left not sent (stopped)' : ''}.$sheetNote',
+          err: failed > 0 || unsaved > 0);
     }
   }
 
@@ -408,12 +577,37 @@ class _BulkScreenState extends State<BulkScreen> {
           padding: const EdgeInsets.all(14),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            OutlinedButton.icon(
-              icon: const Icon(Icons.upload_file),
-              label: const Text('Choose CSV File'),
-              onPressed: _sending ? null : _pickCsv,
+            SegmentedButton<_Source>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                    value: _Source.sheets,
+                    icon: Icon(Icons.table_chart),
+                    label: Text('Google Sheets')),
+                ButtonSegment(
+                    value: _Source.csv,
+                    icon: Icon(Icons.upload_file),
+                    label: Text('CSV File')),
+              ],
+              selected: {_source},
+              onSelectionChanged: _sending || _savingStatus
+                  ? null
+                  : (s) => _setSource(s.first),
             ),
-            if (_rows.isEmpty) ...[
+            const SizedBox(height: 10),
+            if (_source == _Source.sheets)
+              SheetsSourcePanel(
+                enabled: !_sending && !_savingStatus,
+                onLoaded: _onSheetLoaded,
+                onOpenSettings: widget.onOpenSettings,
+              )
+            else
+              OutlinedButton.icon(
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Choose CSV File'),
+                onPressed: _sending ? null : _pickCsv,
+              ),
+            if (_rows.isEmpty && _source == _Source.csv) ...[
               const SizedBox(height: 8),
               Card(
                 margin: EdgeInsets.zero,
@@ -501,20 +695,39 @@ class _BulkScreenState extends State<BulkScreen> {
                 FilledButton.icon(
                   icon: const Icon(Icons.send),
                   label: const Text('Send All Emails'),
-                  onPressed: _sendAll,
+                  onPressed: _savingStatus ? null : _sendAll,
+                ),
+              if (!_sending && _pendingStatuses > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: OutlinedButton.icon(
+                    icon: _savingStatus
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.cloud_upload),
+                    label: Text('Save $_pendingStatuses pending '
+                        '${_pendingStatuses == 1 ? 'status' : 'statuses'} '
+                        'to the sheet'),
+                    onPressed: _savingStatus ? null : _savePendingStatuses,
+                  ),
                 ),
             ],
           ]),
         )),
         const SliverToBoxAdapter(child: Divider(height: 1)),
         _rows.isEmpty
-            ? const SliverToBoxAdapter(
+            ? SliverToBoxAdapter(
                 child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
-                    'Upload a CSV file. You can download a sample file above.',
+                    _source == _Source.csv
+                        ? 'Upload a CSV file. You can download a sample file above.'
+                        : 'Choose a spreadsheet and a worksheet tab, then tap '
+                            '"Load recipients".',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey)),
+                    style: const TextStyle(color: Colors.grey)),
               ))
             : SliverList.separated(
                 itemCount: _rows.length,
@@ -530,7 +743,7 @@ class _BulkScreenState extends State<BulkScreen> {
                         child: Text('${i + 1}',
                             style: const TextStyle(fontSize: 12))),
                     title: Text('${r.name}  •  ₹${r.amount.round()}'
-                        '${r.status == SendStatus.sent ? '  •  #${r.recNo}' : ''}'),
+                        '${r.status == SendStatus.sent && r.recNo > 0 ? '  •  #${r.recNo}' : ''}'),
                     subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -540,6 +753,23 @@ class _BulkScreenState extends State<BulkScreen> {
                               '${r.mode == PaymentMode.online && r.txnNo.isNotEmpty ? ' #${r.txnNo}' : ''}'
                               '  |  ${_langLabel[r.lang] ?? r.lang}',
                               style: const TextStyle(fontSize: 11.5)),
+                          if (r.sourceRow != null)
+                            Text(
+                                'Sheet row ${r.sourceRow}  |  status: '
+                                '${r.sheetStatus.isEmpty ? '—' : r.sheetStatus}'
+                                '${r.sheetPending != null ? ' (saving ${r.sheetPending! ? 'TRUE' : 'FALSE'} pending)' : ''}',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.black54)),
+                          if (r.sheetError.isNotEmpty)
+                            Text(
+                                r.status == SendStatus.sent
+                                    ? 'Email sent, but its status could not be '
+                                        'saved to the sheet: ${r.sheetError}'
+                                    : 'Status could not be saved to the sheet: '
+                                        '${r.sheetError}',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange.shade900)),
                           if (r.sentBefore)
                             const Text(
                                 'Already sent. Long-press to send it again.',

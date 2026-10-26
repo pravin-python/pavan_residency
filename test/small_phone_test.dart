@@ -42,7 +42,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Select a block'), findsOneWidget);
 
-    await tester.tap(find.text('Bulk CSV'));
+    await tester.tap(find.text('Bulk'));
+    await tester.pumpAndSettle();
+    // Google Sheets is the default source; CSV is one tap away.
+    expect(find.text('Google Sheets'), findsOneWidget);
+    await tester.tap(find.text('CSV File'));
     await tester.pumpAndSettle();
     expect(find.text('Choose CSV File'), findsOneWidget);
 

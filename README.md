@@ -27,18 +27,19 @@ You can send one receipt at a time or many at once from a CSV file.
 7. [Installing on a phone / Play Store](#installing-on-a-phone--play-store)
 8. [Gmail SMTP setup](#gmail-smtp-setup)
 9. [CSV format (Bulk)](#csv-format-bulk)
-10. [Receipt number rules](#receipt-number-rules)
-11. [Permissions](#permissions)
-12. [Project structure](#project-structure)
-13. [Tests](#tests)
-14. [Troubleshooting](#troubleshooting)
+10. [Google Sheets (Bulk)](#google-sheets-bulk)
+11. [Receipt number rules](#receipt-number-rules)
+12. [Permissions](#permissions)
+13. [Project structure](#project-structure)
+14. [Tests](#tests)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Features
 
 - **Single**: fill the form (Block A/B/C, Payment Mode, Type, Other details), see a PDF preview, and send the email.
-- **Bulk CSV**: upload a CSV and each row gets its own receipt (in that row's language, type and mode). **Send All Emails** sends every ready row **in parallel** (up to 4 SMTP connections at once, each logged in once and reused), shows a status for every row, and you can press **Stop** at any time.
+- **Bulk**: the recipients come from **Google Sheets (default)** or from a **CSV file**. With Google Sheets the app also writes `TRUE` / `FALSE` into an `email_sent` column of the sheet after each send (see [Google Sheets (Bulk)](#google-sheets-bulk)). Each row gets its own receipt (in that row's language, type and mode). **Send All Emails** sends every ready row **in parallel** (up to 4 SMTP connections at once, each logged in once and reused), shows a status for every row, and you can press **Stop** at any time.
   - Rows are sent one at a time until the first email is delivered. That checks the login, so a wrong password fails once instead of four times.
   - If the mail server allows fewer parallel connections, the extra connections hand their rows back and the rest are still sent.
   - Receipts that were already sent (for example after an interrupted run) are skipped. Long-press a row to send it again.
@@ -320,6 +321,48 @@ A row with a problem shows **"✗ fix"** in the list, and a red line explains th
 
 ---
 
+## Google Sheets (Bulk)
+
+On the Bulk tab, **Google Sheets** is selected when the app starts. **CSV File** is one tap away and works exactly as before: the CSV workflow never touches Google, and nothing is ever written to a CSV file. If a Google Sheets step fails, the app shows the error and stays on Google Sheets; it never switches to CSV by itself.
+
+The columns of the worksheet are the same as the [CSV format](#csv-format-bulk) (same names, same rules, same personalisation fields).
+
+### One-time Google setup
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → create (or pick) a project.
+2. **APIs & Services → Library**: enable **Google Sheets API** *and* **Google Drive API**. The Sheets API alone cannot list your spreadsheets; the Drive API is used only to list the spreadsheets shared with the account and to check edit rights (scope `drive.metadata.readonly`: it cannot read file contents). If you only paste spreadsheet links you can skip the Drive API.
+3. **IAM & Admin → Service Accounts → Create service account** (no roles needed).
+4. Open the account → **Keys → Add key → Create new key → JSON**. A `.json` file downloads.
+5. In the app: **Settings → Google Sheets → Upload credentials**, choose that file. The app checks that it really is a service-account key and shows the email address of the account.
+6. In Google Sheets open your spreadsheet → **Share** → paste that service-account email → **Editor**. A service account sees **only** spreadsheets shared with it; uploading the key does not give the app access to any of your other files.
+7. Delete the downloaded JSON file from the phone (the app keeps its own protected copy).
+
+**Billing:** the Google Sheets and Drive APIs and service accounts are free for this use; no billing account is needed. Quotas apply (about 60 write requests per minute per user). The app batches status writes (10 recipients per request) and retries on `429` / `5xx` with exponential back-off, so a normal run stays far below them.
+
+### Using it
+
+1. **Bulk → Google Sheets**: tap the search icon to list the spreadsheets shared with the account (or the link icon to paste a link / ID), choose the spreadsheet, then the **worksheet tab**. The choice is remembered.
+2. **Load recipients** (also the refresh button). Only the selected tab is read. Each row shows its real sheet row number and the current status. `TRUE` rows are shown as sent and skipped (long-press to send again); `FALSE` and blank rows are ready.
+3. **Send All Emails** works as before (parallel sending, Stop, receipt numbers). Before the first email the app checks that the spreadsheet and tab are reachable, that the account may edit them, and that the status column exists. If not, **nothing is sent**.
+4. After each email: confirmed delivered → `TRUE`; certainly not delivered (login refused, address refused...) → `FALSE`. If delivery is **uncertain** (the connection dropped after sending) nothing is written, because `FALSE` could cause a duplicate email.
+5. If the email went out but the sheet could not be updated, the row says **"Email sent, but its status could not be saved to the sheet"** (never "failed"), and a **Save N pending statuses** button writes them later. Reloading the sheet never re-sends those emails: the phone remembers what it sent.
+
+### Status column
+
+- Title: `email_sent` by default; change it in Settings → Google Sheets. `Email_Sent`, `email sent` and `EMAIL SENT` are the same column. A recipient column name such as `email` is refused.
+- Found → updated. Not found → the title is added **once**, after the last used column (never over data), and the grid is widened if it is full. It is never duplicated on later runs.
+- Only status cells (and that one header cell) are written. Other columns, values and formulas are untouched; no row is ever appended.
+- Each write is checked first: the recipient's email cell must still be at the remembered row. If rows were inserted or deleted meanwhile the row is found again by its email; if that is ambiguous the status is **not** written and the row asks you to reload.
+
+### Security notes and limits
+
+- The key is stored only in Android-Keystore-backed secure storage (`flutter_secure_storage`), reduced to the fields needed for signing in. It is not in SharedPreferences, not in the source, not in logs or error messages, and not in backups (`allowBackup=false`).
+- **A phone-held key is a trade-off.** Anyone who gets the JSON file (or a rooted phone) can act as that service account on the spreadsheets shared with it. Share only what is needed and revoke a lost key in Google Cloud (Service Accounts → Keys). A more secure design keeps the key on a server (for example a Cloud Function or Apps Script web app that exposes only "list tabs / read rows / set status") and the app only holds a revocable token. That needs a backend and is not part of this app; this version is the direct-upload design.
+- Google does not offer a compare-and-set for cells: between the row check and the write another editor could still change the sheet. The window is a fraction of a second.
+- Hidden / filtered rows are treated like any other row. Merged header cells are not supported.
+
+---
+
 ## Receipt number rules
 
 - **Next Receipt No.** is in Settings. It goes up by 1 after every successful send (794, 795, 796 ...).
@@ -338,6 +381,8 @@ A row with a problem shows **"✗ fix"** in the list, and a red line explains th
 |---|---|
 | `INTERNET` | To send email over SMTP |
 | `ACCESS_NETWORK_STATE` | To check the network state |
+
+(`INTERNET` is also what Google Sheets uses. No other permission is added.)
 
 - **No storage permission, on purpose.** Picking the CSV and the signature and "Download Sample CSV"
   all go through Android's system file dialog (Storage Access Framework), which needs no permission.
@@ -364,11 +409,23 @@ lib/
     settings_service.dart      # SharedPreferences settings + receipt counter
     sent_log.dart              # which receipts were already mailed (no re-send)
     signature_image.dart       # signature resize / validation
+    sheets/
+      google_credentials.dart  # service-account key parsing + validation
+      credential_store.dart    # secure (Keystore) storage of the key
+      sheets_api.dart          # Sheets v4 / Drive v3 REST client, retries, A1 helpers
+      sheets_config.dart       # remembered spreadsheet / tab / status title, link parsing
+      sheet_layout.dart        # header row, email column, status column detection
+      sheet_recipient_reader.dart  # worksheet -> recipients (reuses CsvService rules)
+      sheet_status_writer.dart # status column creation, verified batched writes
+      sheets_service.dart      # signed-in API + per-run session (pre-send checks)
+  widgets/
+    sheets_source_panel.dart   # Bulk: spreadsheet / tab pickers, load / refresh
+    sheets_settings_section.dart # Settings: credentials, status title, instructions
   screens/
-    home_screen.dart           # bottom navigation (Single / Bulk CSV / Settings)
+    home_screen.dart           # bottom navigation (Single / Bulk / Settings)
     single_screen.dart         # single receipt form
-    bulk_screen.dart           # CSV upload, Send All, Stop
-    settings_screen.dart       # SMTP + signature + receipt settings
+    bulk_screen.dart           # source (Sheets / CSV), Send All, Stop
+    settings_screen.dart       # SMTP + signature + receipt + Google Sheets settings
   utils/file_saver*.dart       # "Save as" dialog (sample CSV)
 assets/
   fonts/                       # Noto Sans (Gujarati, Devanagari, Latin)
@@ -394,6 +451,13 @@ flutter analyze                       # lint / static checks
 
 The tests cover CSV parsing (formats, dates, amounts, modes/types), receipt numbering,
 the sent log, the signature, error messages, and the small-phone / large-font layout.
+
+`test\sheets\` covers Google Sheets against an in-memory Google backend (`fake_google.dart`): credential
+validation and secure storage, spreadsheet / tab selection, header detection, status column
+creation / reuse / no duplicates, correct-row writes without touching other data, retries and
+failures, and the full Bulk screen (real SMTP sockets) for TRUE / FALSE / "sent but status not saved".
+`test\flutter_test_config.dart` swaps in an in-memory secure storage, so the real Android Keystore
+is **not** exercised by the automated tests.
 
 ---
 

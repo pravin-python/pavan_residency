@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/settings_service.dart';
 import '../services/signature_image.dart';
+import '../widgets/sheets_settings_section.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -329,6 +330,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           label: const Text('Save Settings'),
           onPressed: _save,
         ),
+        const Divider(height: 36),
+        // Has its own buttons: credentials and the status column title are
+        // saved as soon as they are changed, not by "Save Settings".
+        const SheetsSettingsSection(),
         const SizedBox(height: 16),
         // Shows which build is installed (e.g. after updating the APK).
         FutureBuilder<PackageInfo>(

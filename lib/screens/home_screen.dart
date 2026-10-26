@@ -22,10 +22,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: IndexedStack(
         index: _index,
-        children: const [
-          SingleScreen(),
-          BulkScreen(),
-          SettingsScreen(),
+        children: [
+          const SingleScreen(),
+          BulkScreen(onOpenSettings: () => setState(() => _index = 2)),
+          const SettingsScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -35,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
               icon: Icon(Icons.receipt_long), label: 'Single'),
           NavigationDestination(
-              icon: Icon(Icons.upload_file), label: 'Bulk CSV'),
+              icon: Icon(Icons.upload_file), label: 'Bulk'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),

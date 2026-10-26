@@ -34,6 +34,27 @@ class ReceiptData {
   /// The CSV had no date, so [date] is the day it was loaded (today).
   bool dateDefaulted = false;
 
+  // --- Google Sheets source only (all unset / empty for CSV rows) ---
+
+  /// 1-based worksheet row this recipient was read from.
+  int? sourceRow;
+
+  /// The email cell exactly as read. Checked against the sheet before the
+  /// status is written, so a moved row never gets another row's status.
+  String sourceEmailCell = '';
+
+  /// Status text currently in the sheet's status column ('TRUE', 'FALSE' or
+  /// '' when blank / not written yet).
+  String sheetStatus = '';
+
+  /// A status ('TRUE' / 'FALSE') that still has to be written to the sheet
+  /// (the write failed, or the app was closed before it happened). null =
+  /// nothing pending.
+  bool? sheetPending;
+
+  /// Why the status could not be saved to the sheet ('' = no problem).
+  String sheetError = '';
+
   ReceiptData({
     this.lang = 'gu',
     this.name = '',
@@ -103,7 +124,12 @@ class ReceiptData {
         error: error,
       )
         ..sentBefore = sentBefore
-        ..dateDefaulted = dateDefaulted;
+        ..dateDefaulted = dateDefaulted
+        ..sourceRow = sourceRow
+        ..sourceEmailCell = sourceEmailCell
+        ..sheetStatus = sheetStatus
+        ..sheetPending = sheetPending
+        ..sheetError = sheetError;
 
   /// Case-insensitive: 'Cash' / 'Cheque' / 'Check' / 'Online' / 'UPI' /
   /// 'NEFT' / 'GPay' / 'PhonePe' ... (Gujarati / Hindi words too).

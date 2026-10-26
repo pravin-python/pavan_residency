@@ -19,6 +19,9 @@ dependencies:
   image: ^4.9.1
   wakelock_plus: ^1.5.2
   package_info_plus: ^9.0.1
+  http: ^1.6.0
+  googleapis_auth: ^2.3.5
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:

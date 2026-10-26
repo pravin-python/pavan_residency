@@ -15,9 +15,9 @@ void main() {
     await tester.pumpWidget(const PavanApp());
     await tester.pump();
 
-    // Bottom navigation exposes Single / Bulk CSV / Settings destinations.
+    // Bottom navigation exposes Single / Bulk / Settings destinations.
     expect(find.text('Single'), findsWidgets);
-    expect(find.text('Bulk CSV'), findsWidgets);
+    expect(find.text('Bulk'), findsWidgets);
     expect(find.text('Settings'), findsWidgets);
   });
 }

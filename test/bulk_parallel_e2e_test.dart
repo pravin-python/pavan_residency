@@ -441,7 +441,10 @@ Future<void> _openBulk(
   FilePicker.platform = _FakeFilePicker(csv);
   await tester.pumpWidget(const PavanApp());
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Bulk CSV'));
+  await tester.tap(find.text('Bulk'));
+  await tester.pumpAndSettle();
+  // Google Sheets is the default source; these tests exercise the CSV one.
+  await tester.tap(find.text('CSV File'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('Choose CSV File'));
   await tester.pumpAndSettle();

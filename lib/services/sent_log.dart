@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/receipt_data.dart';
@@ -19,6 +20,10 @@ class SentLog {
   /// receipt key -> {n: receipt no., t: sent at (ms since epoch)}, oldest
   /// first.
   static Map<String, Map<String, dynamic>>? _cache;
+
+  /// Tests only: forget the in-memory copy (the stored log is separate).
+  @visibleForTesting
+  static void resetForTesting() => _cache = null;
 
   /// Same flat + payer + payment details = same receipt.
   static String keyOf(ReceiptData d) => [
