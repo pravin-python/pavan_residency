@@ -189,7 +189,7 @@ class CsvService {
   }
 
   /// UTF-8 (with or without BOM) or UTF-16 LE/BE (with a BOM, or detected by
-  /// its zero bytes) — Excel's "Unicode Text" / "CSV UTF-16" exports.
+  /// its zero bytes) Excel's "Unicode Text" / "CSV UTF-16" exports.
   static String decode(Uint8List bytes) {
     bool? littleEndian;
     var start = 0;
@@ -295,7 +295,7 @@ class CsvService {
     }
 
     // The header is the first row (of the first 10) that names at least two
-    // known columns — so a title / blank line above it doesn't break import.
+    // known columns so a title / blank line above it doesn't break import.
     List<List<dynamic>> rows = const [];
     var headerAt = -1;
     final guess = sep ?? _delimiter(text);

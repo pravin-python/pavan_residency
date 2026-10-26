@@ -31,7 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AppSettings? _s;
 
   /// Next receipt no. last shown in the field. Save only changes the counter
-  /// when the user edited the field — otherwise sends made since this screen
+  /// when the user edited the field otherwise sends made since this screen
   /// loaded would be rolled back and numbers reused.
   int? _shownNextNo;
 
@@ -143,7 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final s = _s ?? await SettingsService.load();
     final typedNo = int.tryParse(_nextNo.text.trim());
     final changedNo = typedNo != null && typedNo > 0 && typedNo != _shownNextNo;
-    // Until confirmed once (new install / reinstall — backups are off) the
+    // Until confirmed once (new install / reinstall backups are off) the
     // counter is only the default: make the user check it.
     if (!mounted) return;
     if (!s.counterConfirmed) {

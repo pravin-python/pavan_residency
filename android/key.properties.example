@@ -1,4 +1,4 @@
-# Release signing secrets — COPY this file to `key.properties` and fill in.
+# Release signing secrets COPY this file to `key.properties` and fill in.
 # NEVER commit the real key.properties or the .jks keystore (already in .gitignore).
 #
 # The real key for this app already exists: android/pavan-release.jks

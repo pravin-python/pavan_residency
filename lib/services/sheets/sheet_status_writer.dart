@@ -86,7 +86,7 @@ class SheetStatusWriter {
   /// Before writing, each recipient's email cell is compared with what was
   /// read earlier. When the row moved (rows inserted / deleted / sorted since
   /// loading) it is looked up again by its email; if that is not unambiguous
-  /// the status is NOT written and the outcome says so — a wrong row is worse
+  /// the status is NOT written and the outcome says so a wrong row is worse
   /// than a missing status.
   Future<List<StatusOutcome>> write(List<StatusUpdate> updates) async {
     if (updates.isEmpty) return const [];

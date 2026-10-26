@@ -23,7 +23,7 @@ class SheetRecipientReader {
   /// Turns worksheet [table] (row i = sheet row i + 1) into recipients with
   /// the same rules as the CSV import ([CsvService]).
   ///
-  /// Each row remembers its worksheet row ([ReceiptData.sourceRow]) — the
+  /// Each row remembers its worksheet row ([ReceiptData.sourceRow]) the
   /// real row, not the position in a filtered list. A status already in the
   /// sheet is shown: TRUE = sent (skipped, like "sent before"), FALSE or
   /// blank = ready to send.

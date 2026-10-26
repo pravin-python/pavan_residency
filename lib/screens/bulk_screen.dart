@@ -288,7 +288,7 @@ class _BulkScreenState extends State<BulkScreen> {
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => Scaffold(
-        appBar: AppBar(title: Text('Preview — ${d.name}')),
+        appBar: AppBar(title: Text('Preview ${d.name}')),
         body: PdfPreview(
           canChangeOrientation: false,
           canChangePageFormat: false,
@@ -396,7 +396,7 @@ class _BulkScreenState extends State<BulkScreen> {
     ReceiptData take() => back.isNotEmpty ? back.removeAt(0) : todo[next++];
 
     /// Sends one row. Returns false when [session] should stop taking rows
-    /// (an extra parallel connection the server refused — the row was
+    /// (an extra parallel connection the server refused the row was
     /// handed back to the others).
     Future<bool> sendOne(ReceiptData r, SmtpSession session) async {
       if (mounted) setState(() => r.status = SendStatus.sending);

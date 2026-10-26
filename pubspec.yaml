@@ -29,7 +29,7 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_launcher_icons: ^0.14.4
 
-# App launcher icon (Pavan Residency) — replaces the default Flutter icon.
+# App launcher icon (Pavan Residency) replaces the default Flutter icon.
 # Regenerate with: dart run flutter_launcher_icons
 flutter_launcher_icons:
   android: true

@@ -27,7 +27,7 @@ class AppSettings {
   /// Receipt numbers that were taken for a send that then certainly failed,
   /// but could not be given back because a later number was already taken
   /// (parallel sends). They are issued again first, so the sequence has no
-  /// gaps — also after the CSV is loaded again or the app restarts.
+  /// gaps also after the CSV is loaded again or the app restarts.
   List<int> spareNos;
 
   // Signature image (base64) - jpg/jpeg/png
@@ -117,7 +117,7 @@ class SettingsService {
   static void reserve(Iterable<int> nos) => _reserved.addAll(nos);
   static void unreserve(Iterable<int> nos) => _reserved.removeAll(nos);
 
-  /// Every caller gets the SAME [AppSettings] instance — the screens keep a
+  /// Every caller gets the SAME [AppSettings] instance the screens keep a
   /// reference to it, and a second copy would save a stale receipt counter
   /// over the live one.
   static Future<AppSettings> load() {

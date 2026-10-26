@@ -16,8 +16,8 @@ import 'sheet_status_writer.dart';
 import 'sheets_api.dart';
 
 /// OAuth scopes requested for the service account:
-///  * spreadsheets — read recipients and write the status column;
-///  * drive.metadata.readonly — ONLY to list which spreadsheets are shared
+///  * spreadsheets read recipients and write the status column;
+///  * drive.metadata.readonly ONLY to list which spreadsheets are shared
 ///    with the account (the Sheets API cannot list spreadsheets) and to check
 ///    edit rights. It cannot read file contents. Entering a link / ID works
 ///    without listing.

@@ -12,7 +12,7 @@ class SentLog {
   static const _key = 'pavan_sent_log_v2';
   static const _max = 5000; // oldest entries are dropped beyond this
 
-  /// A CSV row without a date gets "today" — so for those the date can't
+  /// A CSV row without a date gets "today" so for those the date can't
   /// tell this month's receipt from next month's. They only count as
   /// "already sent" within this window (an interrupted run resumed later).
   static const blankDateWindow = Duration(days: 7);

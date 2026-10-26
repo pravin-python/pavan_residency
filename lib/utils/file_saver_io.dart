@@ -14,7 +14,7 @@ Future<bool> saveFile({
   );
   if (path == null) return false; // cancelled
   // On Android / iOS the plugin already wrote the bytes through the system
-  // "Save as" dialog (Storage Access Framework — no storage permission
+  // "Save as" dialog (Storage Access Framework no storage permission
   // needed). The returned path is only a display hint (always .../Download/
   // <name>), so writing to it again fails with "Permission denied" on
   // Android 10+. Desktop only returns the chosen path: write it ourselves.

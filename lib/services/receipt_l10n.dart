@@ -123,7 +123,7 @@ class ReceiptL10n {
     bank: 'Bank',
     pay: 'Payment',
     txn: 'Transaction No.',
-    received: '— received with thanks the amount as per details below:',
+    received: 'received with thanks the amount as per details below:',
     words: 'Rupees in words',
     total: 'Total',
     note:

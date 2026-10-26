@@ -18,7 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('પાવન રેસીડેન્સી — Receipt Mailer'),
+        title: const Text('પાવન રેસીડેન્સી (Receipt Mailer)'),
       ),
       body: IndexedStack(
         index: _index,
